@@ -53,8 +53,8 @@ Some example txt indication files.
 ## Getting started
 
 Before running the function, ensure that you have the following packages installed and loaded:
-library("tidyverse")
-library("dplR")
+- library("tidyverse")
+- library("dplR")
 dplR is not used within the function itself but is needed to process the output which can be set to dplR dataframe. 
 
 ---
