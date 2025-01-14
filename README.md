@@ -68,7 +68,7 @@ You can find the paper where the entire pipeline is described [here](TO DO), or 
 TODO
 ```
 
-When using any of the software, also cite the proper Zenodo DOI ([here for analysis](https://doi.org/10.5281/zenodo.14637855) and [here for imaging](https://doi.org/10.5281/zenodo.14637832)) related to the releases of the software.
+When using any of the software, also cite the proper [Zenodo DOI](todo)
 
 ---
 
