@@ -28,25 +28,26 @@ This is the repository for the XCT.Read R-function. This function was created to
 
 ##  Function: XCT.Read.R
 XCT.Read function reads and calculates ring width and density parameters from txt-formatted ring indications and density profile output. The parameters are: 
-- path: A path to the folder containing the txt files
+- path: A path to the folder containing the txt files. 
 - output: The output type, can be "ringwidth" (dplR format of ring width), "density" (dplR format of RW), "ringwidth_density" (long format of the sample, year, ring width, and density), or "density_profile" (long format of the sample, year, and density profile in that year)
 - densityType: The type of density to calculate, can be "fraction" or "fixed". "fraction" calculates the density in a variable width window that corresponds to two fraction numbers that go from 0 (start ring) to 1 (end ring), set in variable area. "fixed" calculates the density in a fixed width window, starting from the beginning or the end of the ring. set in variable area.
 - area: Fraction of the ring to calculate the density parameter. If densityType = "fraction" this is a vector of two numbers that go from 0 (start ring) to 1 (end ring). If densityType = "fixed" this is a vector with "start" or "end" as the first variable, and the width of the window in micrometers as the second variable.
 - fun: The function to calculate the density in the selected area, can be "mean", "median", "min", "max", or "mean_top_x". "mean_top_x" calculates the mean of the x highest values in the selected area, the variable x should be set to a fraction between 0 and 1.
 - x: Fraction of the highest values to calculate the mean. Only used if fun = "mean_top_x".
 - removeNarrowRings: Removes density parameters of rings that are too small, set in minRingWidth. Can be either TRUE or FALSE.
-- minRingWidth: Minimum width of the ring in mm that should be used in density calculations, only if removeNarrowRings = TRUE
+- minRingWidth: Minimum width of the ring in mm that should be used in density calculations, only if removeNarrowRings = TRUE. 
 
 
 ---
 
 ## Example use: XCT.Read.Rmd
-bla
+An example R Markdown file that showcases the different possible outputs and calculations. 
 
 ---
 
 ## Test data folder
-bla
+Some example txt indication files. 
+
 ---
 
 ## Getting started
