@@ -1,14 +1,14 @@
 
 
 #### make XCT.read function ####
-XCT.read <- function(path,# Path to the folder containing the files
-                     output = "ringwidth_density", # Output type, can be "ringwidth" (dplR format of RW), "density" (dplR format of RW), "ringwidth_density" (long format of the sample, year, ringwidth, and density), or "density_profile" (long format of the sample, year, and density profile in that year)
-                     densityType = "fraction", # Type of density to calculate, can be "fraction" or "fixed". "fraction" calculates the density in a variable width window that corresponds to two fraction numbers that go from 0 (start ring) to 1 (end ring), set in variable area. "fixed" calculates the density in a fixed width window, starting from the beginning or the end of the ring. set in variable area.
-                     area = c(0.75, 1), # Fraction of the ring to calculate the density. If densityType = "fraction" this is a vector of two numbers that go from 0 (start ring) to 1 (end ring). If densityType = "fixed" this is a vector with "start" or "end" as the first variable, and the width of the window in micrometers as the second variable.
-                     fun = "mean", # Function to calculate the density in the selected area, can be "mean", "median", "min", "max", "mean_top_x". If "mean_top_x" calculateds the mean of the x highest values in the selected area, the variable x should be set to a fraction between 0 and 1.
+XCT.read <- function(path,# A path to the folder containing the txt files
+                     output = "ringwidth_density", # The output type, can be "ringwidth" (dplR format of ring width), "density" (dplR format of RW), "ringwidth_density" (long format of the sample, year, ring width, and density), or "density_profile" (long format of the sample, year, and density profile in that year)
+                     densityType = "fraction", # The type of density to calculate, can be "fraction" or "fixed". "fraction" calculates the density in a variable width window that corresponds to two fraction numbers that go from 0 (start ring) to 1 (end ring), set in variable area. "fixed" calculates the density in a fixed width window, starting from the beginning or the end of the ring. set in variable area.
+                     area = c(0.75, 1), # Fraction of the ring to calculate the density parameter. If densityType = "fraction" this is a vector of two numbers that go from 0 (start ring) to 1 (end ring). If densityType = "fixed" this is a vector with "start" or "end" as the first variable, and the width of the window in micrometers as the second variable.
+                     fun = "mean", # The function to calculate the density in the selected area, can be "mean", "median", "min", "max", or "mean_top_x". "mean_top_x" calculates the mean of the x highest values in the selected area, the variable x should be set to a fraction between 0 and 1.
                      x = 0.2,  # Fraction of the highest values to calculate the mean. Only used if fun = "mean_top_x".
-                     removeNarrowRings = FALSE, # Remove rings that are to small, set in minRingWidth
-                     minRingWidth = 0.030 # Minimum width of the ring in mm
+                     removeNarrowRings = FALSE, # Removes density parameters of rings that are too small, set in minRingWidth. Can be either TRUE or FALSE.
+                     minRingWidth = 0.030 #  Minimum width of the ring in mm that should be used in density calculations, only if removeNarrowRings = TRUE
 ){
   
   
