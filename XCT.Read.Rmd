@@ -1,0 +1,87 @@
+---
+title: "XCT.Read"
+author: "Louis Verschuren"
+date: "2024-10-29"
+output: html_document
+---
+
+
+
+```{r setup}
+
+remove(list = ls())
+
+#### load necessary packages ####
+library("tidyverse")
+library("dplR")
+
+#### load XCT.Read function ####
+source("XCT.Read.R")
+
+
+```
+
+
+# set the path to the folder containing the files
+```{r}
+
+path = "Datafolder"
+
+```
+
+
+
+# example use of function with dplR output format (wide format)
+```{r}
+
+# ringwidth data
+RW <- XCT.read(path, output = "ringwidth")
+
+# mean density of the last 25% of the ring
+Density <- XCT.read(path, output = "density", densityType = "fraction", area = c(0.75, 1), fun = "mean")
+
+# mean density of the middle 50% of the ring
+Density <- XCT.read(path, output = "density", densityType = "fraction", area = c(0.25, 0.75), fun = "mean")
+
+# mean density of the last 100 micrometers of the ring
+Density <- XCT.read(path, output = "density", densityType = "fixed", area = c("end", 100), fun = "mean")
+
+# mean desity of top 20 percent highest density values of the last 300 micrometers of the ring
+Density <- XCT.read(path, output = "density", densityType = "fixed", area = c("end", 300), fun = "mean_top_x", x = 0.2)
+
+# mean density of the last 25% of the ring, but only the rings larger than 3 mm 
+Density <- XCT.read(path, output = "density", densityType = "fraction", area = c(0.75, 1), fun = "mean", removeNarrowRings = TRUE, minRingWidth = 3)
+
+
+```
+
+
+# example use of function long format
+```{r}
+# mean density of the last 25% of the ring
+Data <- XCT.read(path, output = "ringwidth_density", densityType = "fraction", area = c(0.75, 1), fun = "mean")
+
+```
+
+
+
+# example use density profile long format
+```{r}
+Data <- XCT.read(path, output = "density_profile")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
