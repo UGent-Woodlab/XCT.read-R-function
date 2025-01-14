@@ -11,9 +11,8 @@
 [^UG-WL]: UGent-Woodlab
 
 
-<p align="left">
-   This is the repository for the XCT.Read R-function. This function was created to easily read and calculate ring width and density parameters using the txt-formatted ring indications and density profile output from the MATLAB-based [RingIndicator software](https://dendrochronomics.ugent.be/), created at UGent-Woodlab. The section of the profile where a density parameter is calculated can be set by the user: either a fraction of the ring (e.g. the second quarter of each ring) or a fixed width (e.g. the last 100 µm of each ring). The output of the function is a dplR or a long format data frame.
-</p>
+
+This is the repository for the XCT.Read R-function. This function was created to easily read and calculate ring width and density parameters using the txt-formatted ring indications and density profile output from the MATLAB-based [RingIndicator software](https://dendrochronomics.ugent.be/), created at UGent-Woodlab. The section of the profile where a density parameter is calculated can be set by the user: either a fraction of the ring (e.g. the second quarter of each ring) or a fixed width (e.g. the last 100 µm of each ring). The output of the function is a dplR or a long format data frame.
 
 
 #####  Table of Contents
