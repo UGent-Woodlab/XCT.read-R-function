@@ -4,7 +4,7 @@
 
 
 
-[![DOI](https://zenodo.org/badge/916585374.svg)](https://doi.org/10.5281/zenodo.14654939)
+[![DOI](https://zenodo.org/badge/10.5281/zenodo.14654939.svg)](https://doi.org/10.5281/zenodo.14654939)
 
 
 
