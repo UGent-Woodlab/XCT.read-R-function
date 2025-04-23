@@ -37,6 +37,13 @@ path = "Datafolder"
 # ringwidth data
 RW <- XCT.read(path, output = "ringwidth")
 
+# ringwidth data with overruled resolution of 1 µm:pixel
+RW <- XCT.read(path, output = "ringwidth", overruleResolution = TRUE, resolution = 1)
+
+
+
+
+
 # mean density of the last 25% of the ring
 Density <- XCT.read(path, output = "density", densityType = "fraction", area = c(0.75, 1), fun = "mean")
 

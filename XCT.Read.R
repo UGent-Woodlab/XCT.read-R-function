@@ -8,8 +8,11 @@ XCT.read <- function(path,# A path to the folder containing the txt files
                      fun = "mean", # The function to calculate the density in the selected area, can be "mean", "median", "min", "max", or "mean_top_x". "mean_top_x" calculates the mean of the x highest values in the selected area, the variable x should be set to a fraction between 0 and 1.
                      x = 0.2,  # Fraction of the highest values to calculate the mean. Only used if fun = "mean_top_x".
                      removeNarrowRings = FALSE, # Removes density parameters of rings that are too small, set in minRingWidth. Can be either TRUE or FALSE.
-                     minRingWidth = 0.030 #  Minimum width of the ring in mm that should be used in density calculations, only if removeNarrowRings = TRUE
-){
+                     minRingWidth = 0.030, #  Minimum width of the ring in mm that should be used in density calculations, only if removeNarrowRings = TRUE
+                     overruleResolution = FALSE, # Overrule the resolution of the XCT data txts. If TRUE, the resolution of the XCT data is set to the resolution parameter. If FALSE, the resolution is set to the value in the ringwidth.txt file.
+                     resolution = 1 # The resolution of the data in µm/pixel. Only used if overruleResolution = TRUE.
+                     ){
+
   
   
   
@@ -27,11 +30,11 @@ XCT.read <- function(path,# A path to the folder containing the txt files
     data <- read_delim(file, delim = ", ", 
                        col_names = c("width", "Year", "pixelsize", "Felldate", "MissingringsBefore", "BrokenRingType"),
                        na = "NaN", show_col_types = FALSE)  
-    # Add the file name as a new column
-    data <- data %>% mutate(Sample = file_name, row_number = row_number())
+    data <- data %>% mutate(Sample = file_name, row_number = row_number()) # Add the file name as a new column
     data <- data %>% filter(BrokenRingType != 2) # remove type 2 broken rings rows
     data <- data %>% group_by(Year) %>% mutate(width = max(width)) %>% ungroup() # set ringwidth to the max ringwidth: relevant for ring a type 1 broken ring present
     data <- data %>% filter(BrokenRingType != 1) # remove type 1 broken rings rows
+    if (overruleResolution) {data$pixelsize <- resolution} # set the resolution to the value in the resolution parameter
     data$RW <- data$width * data$pixelsize /1000 # calculate ring width in mm
     return(data)
   }) %>% bind_rows() # Combine all data frames into one
@@ -46,7 +49,7 @@ XCT.read <- function(path,# A path to the folder containing the txt files
     rings <- rings %>% complete(Year = seq(min(rings$Year), max(rings$Year), 1)) # insert NA column in years that are skipped so there is a column for each year
     extent <- as.vector(rings$Year) # year extent data
     rings$Year <- NULL # delete year column
-    # rings <- data.frame(rings) # change to dataframe
+    rings <- as.data.frame(rings) # change to dataframe
     row.names(rings) <- extent # change row names to years
     return(rings)
   }
@@ -216,7 +219,7 @@ XCT.read <- function(path,# A path to the folder containing the txt files
     Density_corr <- Density_corr %>% complete(Year = seq(min(Density_corr$Year), max(Density_corr$Year), 1)) # insert NA column in years that are skipped so there is a column for each year
     extent <- as.vector(Density_corr$Year) # year extent data
     Density_corr$Year <- NULL # delete year column
-    # Density_corr <- data.frame(Density_corr) # change to dataframe
+    Density_corr <- as.data.frame(Density_corr) # change to dataframe
     row.names(Density_corr) <- extent # change row names to years
     return(Density_corr)
   }
