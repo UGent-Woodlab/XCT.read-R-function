@@ -42,7 +42,9 @@ XCT.Read function reads and calculates ring width and density parameters from tx
 - fun: The function to calculate the density in the selected area, can be "mean", "median", "min", "max", or "mean_top_x". "mean_top_x" calculates the mean of the x highest values in the selected area, the variable x should be set to a fraction between 0 and 1.
 - x: Fraction of the highest values to calculate the mean. Only used if fun = "mean_top_x".
 - removeNarrowRings: Removes density parameters of rings that are too small, set in minRingWidth. Can be either TRUE or FALSE.
-- minRingWidth: Minimum width of the ring in mm that should be used in density calculations, only if removeNarrowRings = TRUE. 
+- minRingWidth: Minimum width of the ring in mm that should be used in density calculations, only if removeNarrowRings = TRUE.
+- overruleResolution: Overrule the resolution of the XCT data txts. If TRUE, the resolution of the XCT data is set to the resolution parameter. If FALSE, the resolution is set to the value in the ringwidth.txt file.
+- resolution: The resolution of the data in µm/pixel. Only used if overruleResolution = TRUE.
 
 
 ---
