@@ -16,7 +16,7 @@ library("tidyverse")
 library("dplR")
 
 #### load XCT.Read function ####
-source("XCT.Read.R")
+source("XCT.Read_test.R")
 
 
 ```
@@ -58,6 +58,12 @@ Density <- XCT.read(path, output = "density", densityType = "fixed", area = c("e
 
 # mean density of the last 25% of the ring, but only the rings larger than 3 mm 
 Density <- XCT.read(path, output = "density", densityType = "fraction", area = c(0.75, 1), fun = "mean", removeNarrowRings = TRUE, minRingWidth = 3)
+
+
+
+
+# MXD data from area of interest MXD extraction (RWL files)
+MXD <- XCT.read(path, output = "MXD")
 
 
 ```
