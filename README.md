@@ -66,8 +66,6 @@ Before running the function, ensure that you have the following packages install
 - library("tidyverse")
 - library("dplR")
 
-dplR is not used within the function itself but is needed to process the output which can be set to dplR dataframe. 
-
 ---
 
 ## Cite our work
