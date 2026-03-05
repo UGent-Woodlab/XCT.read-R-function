@@ -16,7 +16,7 @@ library("tidyverse")
 library("dplR")
 
 #### load XCT.Read function ####
-source("XCT.Read_test.R")
+source("XCT.Read.R")
 
 
 ```
@@ -82,6 +82,7 @@ Data <- XCT.read(path, output = "ringwidth_density", densityType = "fraction", a
 ```{r}
 Data <- XCT.read(path, output = "density_profile")
 ```
+
 
 
 
