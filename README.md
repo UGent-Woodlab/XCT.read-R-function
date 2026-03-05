@@ -36,7 +36,7 @@ This is the repository for the XCT.Read R-function. This function was created to
 ##  Function: XCT.Read.R
 XCT.Read function reads and calculates ring width and density parameters from txt-formatted ring indications and density profile output. The parameters are: 
 - path: A path to the folder containing the txt files. 
-- output: The output type, can be "ringwidth" (dplR format of ring width), "density" (dplR format of density parameter), "ringwidth_density" (long format of the sample, year, ring width, and density), or "density_profile" (long format of the sample, year, and density profile in that year)
+- output: The output type, can be "ringwidth" (dplR format of ring width), "density" (dplR format of density parameter), "MXD" (dplR format of MXD, only applicable in the case of MXD extraction by percentile in area of interest), "ringwidth_density" (long format of the sample, year, ring width, and density), or "density_profile" (long format of the sample, year, and density profile in that year)
 - densityType: The type of density to calculate, can be "fraction" or "fixed". "fraction" calculates the density in a variable width window that corresponds to two fraction numbers that go from 0 (start ring) to 1 (end ring), set in variable area. "fixed" calculates the density in a fixed width window, starting from the beginning or the end of the ring. set in variable area.
 - area: Fraction of the ring to calculate the density parameter. If densityType = "fraction" this is a vector of two numbers that go from 0 (start ring) to 1 (end ring). If densityType = "fixed" this is a vector with "start" or "end" as the first variable, and the width of the window in micrometers as the second variable.
 - fun: The function to calculate the density in the selected area, can be "mean", "median", "min", "max", or "mean_top_x". "mean_top_x" calculates the mean of the x highest values in the selected area, the variable x should be set to a fraction between 0 and 1.
@@ -45,6 +45,7 @@ XCT.Read function reads and calculates ring width and density parameters from tx
 - minRingWidth: Minimum width of the ring in mm that should be used in density calculations, only if removeNarrowRings = TRUE.
 - overruleResolution: Overrule the resolution of the XCT data txts. If TRUE, the resolution of the XCT data is set to the resolution parameter. If FALSE, the resolution is set to the value in the ringwidth.txt file.
 - resolution: The resolution of the data in µm/pixel. Only used if overruleResolution = TRUE.
+- autoFixWeirdResolution: Check and optionally fix weird resolution outliers (factor 10 off vs most common resolution), TRUE by default. 
 
 
 ---
