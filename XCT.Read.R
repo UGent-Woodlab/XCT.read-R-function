@@ -1,5 +1,5 @@
 
-#### XCT.read: read XCT Toolchain indication files. version 2026-04-26 ####
+#### XCT.read: read XCT Toolchain indication files. version 2026-04-09 ####
 
 
 XCT.read <- function(
