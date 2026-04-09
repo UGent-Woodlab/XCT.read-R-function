@@ -45,7 +45,9 @@ XCT.Read function reads and calculates ring width and density parameters from tx
 - minRingWidth: Minimum width of the ring in mm that should be used in density calculations, only if removeNarrowRings = TRUE.
 - overruleResolution: Overrule the resolution of the XCT data txts. If TRUE, the resolution of the XCT data is set to the resolution parameter. If FALSE, the resolution is set to the value in the ringwidth.txt file.
 - resolution: The resolution of the data in µm/pixel. Only used if overruleResolution = TRUE.
-- autoFixWeirdResolution: Check and optionally fix weird resolution outliers (factor 10 off vs most common resolution), TRUE by default. 
+- autoFixWeirdResolution: Check and optionally fix weird resolution outliers (factor 10 off vs most common resolution), TRUE by default.
+- verbose: Print additional messages about the loading process (e.g. resolution summary), TRUE by default
+
 
 
 ---
