@@ -1,5 +1,6 @@
 
-#### XCT.read: read XCT Toolchain indication files. version 2026-03-04 ####
+#### XCT.read: read XCT Toolchain indication files. version 2026-04-26 ####
+
 
 XCT.read <- function(
     path,                         # A path to the folder containing the txt files
@@ -12,7 +13,8 @@ XCT.read <- function(
     minRingWidth = 0.030,         # Minimum width of the ring in mm that should be used in density calculations, only if removeNarrowRings = TRUE
     overruleResolution = FALSE,   # Overrule the resolution of the XCT data txts. If TRUE, the resolution of the XCT data is set to the resolution parameter. If FALSE, the resolution is set to the value in the ringwidth.txt file.
     resolution = 1,               # The resolution of the data in µm/pixel. Only used if overruleResolution = TRUE.
-    autoFixWeirdResolution = TRUE #  Check and optionally fix weird resolutions (factor 10 off vs most common), TRUE by default
+    autoFixWeirdResolution = TRUE,# Check and optionally fix weird resolutions (factor 10 off vs most common), TRUE by default
+    verbose = TRUE                # Print additional messages about the loading process (e.g. resolution summary)
 ) {
   
   
@@ -200,7 +202,7 @@ XCT.read <- function(
         return(NULL)
       }
       
-      # Convert "0" (your NA code) to real NA
+      # Convert "0" (NA code) to real NA
       dat[dat == 0] <- NA
       
       
@@ -222,7 +224,7 @@ XCT.read <- function(
     }
     
     MXD <- dplR::combine.rwl(MXD_list)
-    return(MXD)
+    return(as.rwl(MXD))
   }
   # ──────────────────────────────────────────────────────────────────────────
   # 3) Read ringwidth files first, because they hold pixelsize (resolution)
@@ -291,13 +293,15 @@ XCT.read <- function(
     most_common_px <- as.numeric(names(tab)[1])
     
     # Print the requested table: resolutions found + amount of cores
-    resolution_table <- data.frame(
-      pixelsize_um_per_pixel = as.numeric(names(tab)),
-      n_cores = as.integer(tab),
-      row.names = NULL
-    )
-    message("\nResolution summary (reported in *_ringwidth.txt):")
-    print(resolution_table)
+    if (verbose) {
+      resolution_table <- data.frame(
+        pixelsize_um_per_pixel = as.numeric(names(tab)),
+        n_cores = as.integer(tab),
+        row.names = NULL
+      )
+      message("\nResolution summary (reported in *_ringwidth.txt):")
+      print(resolution_table)
+    }
   }
   
   # Auto-correct weird resolutions if requested and if we are NOT explicitly overruling everything
@@ -366,7 +370,7 @@ XCT.read <- function(
     rings_rw$Year <- NULL
     rings_rw <- as.data.frame(rings_rw)
     row.names(rings_rw) <- extent
-    return(rings_rw)
+    return(as.rwl(rings_rw))
   }
   
   # Keep a backup for later "ringwidth_density" join (so RW exists for all rings)
@@ -406,11 +410,11 @@ XCT.read <- function(
       file, delim = "\n", col_names = "xpos",
       na = "NaN", show_col_types = FALSE, progress = FALSE
     )
-    # Your original logic creates a 0-based index so that start/end can be joined as boundaries
+    # A 0-based index so that start/end can be joined as boundaries
     dplyr::mutate(dat, Sample = sample_name, row_number = dplyr::row_number() - 1)
   }))
   
-  # Helpful mismatch warning: not fatal, but often indicates incomplete exports
+  # Mismatch warning: not fatal, but often indicates incomplete exports
   ring_samples <- sort(unique(rings$Sample))
   dens_samples <- sort(unique(Density_corr$Sample))
   zpos_samples <- sort(unique(zpos_corr$Sample))
@@ -433,8 +437,9 @@ XCT.read <- function(
       by = c("Sample", "row_number")
     )
   
-  # Your original off-by-one fix: first pixel is after the end of the last ring
-  rings$start <- rings$start + 1
+  # xpos is the first pixel of the next ring:
+  rings$end <- rings$end - 1
+  
   
   # Drop incomplete ring boundaries
   rings <- tidyr::drop_na(rings)
@@ -582,7 +587,7 @@ XCT.read <- function(
     dens$Year <- NULL
     dens <- as.data.frame(dens)
     row.names(dens) <- extent
-    return(dens)
+    return(as.rwl(dens))
   }
   
   if (output == "ringwidth_density") {
