@@ -1,5 +1,5 @@
 
-#### XCT.read: read XCT Toolchain indication files. version 2026-04-09 ####
+#### XCT.read: read XCT Toolchain indication files. fast version 2026-08-06 ####
 
 
 XCT.read <- function(
@@ -32,7 +32,7 @@ XCT.read <- function(
   }
   
   # These packages/functions are used throughout; fail early with a helpful message
-  required_pkgs <- c("readr", "dplyr", "tidyr", "dplR")
+  required_pkgs <- c("dplyr", "tidyr", "dplR")
   missing_pkgs <- required_pkgs[!vapply(required_pkgs, requireNamespace, logical(1), quietly = TRUE)]
   if (length(missing_pkgs) > 0) {
     stop(
@@ -224,30 +224,61 @@ XCT.read <- function(
     }
     
     MXD <- dplR::combine.rwl(MXD_list)
-    return(as.rwl(MXD))
+    return(dplR::as.rwl(MXD))
   }
   # ──────────────────────────────────────────────────────────────────────────
   # 3) Read ringwidth files first, because they hold pixelsize (resolution)
   #    We will also do the resolution consistency check here.
   # ──────────────────────────────────────────────────────────────────────────
   
+  # Fast readers for the simple numeric text formats produced by RingIndicator.
+  # `scan()` avoids the parser/tibble overhead of readr for these one-purpose files.
+  read_numeric_vector <- function(file) {
+    scan(
+      file = file,
+      what = double(),
+      quiet = TRUE,
+      na.strings = c("NaN", "NA")
+    )
+  }
+
+  read_ringwidth_file <- function(file) {
+    raw <- scan(
+      file = file,
+      what = list(
+        width = double(),
+        Year = double(),
+        pixelsize = double(),
+        Felldate = double(),
+        MissingringsBefore = double(),
+        BrokenRingType = double()
+      ),
+      sep = ",",
+      strip.white = TRUE,
+      quiet = TRUE,
+      na.strings = c("NaN", "NA")
+    )
+
+    # `scan()` returns one vector per expected column.
+    lengths_found <- lengths(raw)
+    if (length(unique(lengths_found)) != 1L) {
+      stop(sprintf(
+        "File '%s' has an inconsistent number of values across columns.",
+        basename(file)
+      ), call. = FALSE)
+    }
+
+    as.data.frame(raw, optional = TRUE, stringsAsFactors = FALSE)
+  }
+
   rings_list <- lapply(ring_files, function(file) {
     sample_name <- sub("_ringwidth\\.txt$", "", basename(file))
-    
-    # The ringwidth file has comma+space delimiter (", ")
-    dat <- readr::read_delim(
-      file,
-      delim = ", ",
-      col_names = c("width", "Year", "pixelsize", "Felldate", "MissingringsBefore", "BrokenRingType"),
-      na = "NaN",
-      show_col_types = FALSE,
-      progress = FALSE
-    )
-    
-    # Add sample id + a row index within this file (used later for joins)
-    dat <- dplyr::mutate(dat, Sample = sample_name, row_number = dplyr::row_number())
-    
-    # Safety: ensure needed columns exist and are numeric where needed
+    dat <- read_ringwidth_file(file)
+
+    # Add sample id + a row index within this file (used to address z-position boundaries).
+    dat$Sample <- sample_name
+    dat$row_number <- seq_len(nrow(dat))
+
     needed_cols <- c("width", "Year", "pixelsize", "BrokenRingType", "Sample", "row_number")
     missing_cols <- setdiff(needed_cols, names(dat))
     if (length(missing_cols) > 0) {
@@ -256,10 +287,10 @@ XCT.read <- function(
         basename(file), paste(missing_cols, collapse = ", ")
       ), call. = FALSE)
     }
-    
+
     dat
   })
-  
+
   rings <- dplyr::bind_rows(rings_list)
   
   # If everything is NA / empty after reading, fail early
@@ -370,7 +401,7 @@ XCT.read <- function(
     rings_rw$Year <- NULL
     rings_rw <- as.data.frame(rings_rw)
     row.names(rings_rw) <- extent
-    return(as.rwl(rings_rw))
+    return(dplR::as.rwl(rings_rw))
   }
   
   # Keep a backup for later "ringwidth_density" join (so RW exists for all rings)
@@ -392,116 +423,142 @@ XCT.read <- function(
   
   
   # ──────────────────────────────────────────────────────────────────────────
-  # 5) Read density and zpos files and map density pixels to rings
+  # 5) Read z-position boundaries and process density directly by interval
+  #
+  # The previous implementation expanded every ring from start:end into a large
+  # pixel-level `density_map`, unnested it, and joined it to all density rows.
+  # That can dominate both runtime and memory. Here, each density vector is read
+  # once and ring intervals are addressed directly with vector slices.
   # ──────────────────────────────────────────────────────────────────────────
-  
-  Density_corr <- dplyr::bind_rows(lapply(dens_files, function(file) {
-    sample_name <- sub("_density_corr\\.txt$", "", basename(file))
-    dat <- readr::read_delim(
-      file, delim = "\n", col_names = "Density",
-      na = "NaN", show_col_types = FALSE, progress = FALSE
-    )
-    dplyr::mutate(dat, Sample = sample_name, row_number = dplyr::row_number())
-  }))
-  
-  zpos_corr <- dplyr::bind_rows(lapply(zpos_files, function(file) {
-    sample_name <- sub("_zpos_corr\\.txt$", "", basename(file))
-    dat <- readr::read_delim(
-      file, delim = "\n", col_names = "xpos",
-      na = "NaN", show_col_types = FALSE, progress = FALSE
-    )
-    # A 0-based index so that start/end can be joined as boundaries
-    dplyr::mutate(dat, Sample = sample_name, row_number = dplyr::row_number() - 1)
-  }))
-  
-  # Mismatch warning: not fatal, but often indicates incomplete exports
+
+  names(dens_files) <- sub("_density_corr\\.txt$", "", basename(dens_files))
+  names(zpos_files) <- sub("_zpos_corr\\.txt$", "", basename(zpos_files))
+
   ring_samples <- sort(unique(rings$Sample))
-  dens_samples <- sort(unique(Density_corr$Sample))
-  zpos_samples <- sort(unique(zpos_corr$Sample))
+  dens_samples <- sort(unique(names(dens_files)))
+  zpos_samples <- sort(unique(names(zpos_files)))
+
   if (!setequal(ring_samples, dens_samples) || !setequal(ring_samples, zpos_samples)) {
     message("\nWARNING: Sample names differ between file groups (ringwidth vs density/zpos).")
-    message("This can happen if exports are incomplete. Missing samples will likely be dropped during joins.")
+    message("This can happen if exports are incomplete. Missing samples will be skipped.")
   }
-  
-  # Merge rings and zpos_corr by Sample and row_number to add start and end pixel positions
-  rings <- rings |>
-    dplyr::left_join(
-      zpos_corr |>
-        dplyr::mutate(row_number = row_number + 1) |> # shift for "start"
-        dplyr::rename(start = xpos),
-      by = c("Sample", "row_number")
-    ) |>
-    dplyr::left_join(
-      zpos_corr |>
-        dplyr::rename(end = xpos),
-      by = c("Sample", "row_number")
+
+  common_samples <- intersect(ring_samples, intersect(dens_samples, zpos_samples))
+  if (length(common_samples) == 0) {
+    stop(
+      "No sample has a matching ringwidth, density_corr, and zpos_corr file.",
+      call. = FALSE
     )
-  
-  # xpos is the first pixel of the next ring:
-  rings$end <- rings$end - 1
-  
-  
-  # Drop incomplete ring boundaries
+  }
+
+  # Add start/end density positions without constructing and joining a zpos table.
+  rings$start <- NA_real_
+  rings$end <- NA_real_
+
+  for (sample_name in common_samples) {
+    zpos <- read_numeric_vector(unname(zpos_files[[sample_name]]))
+    ring_idx <- which(rings$Sample == sample_name)
+    rn <- as.integer(rings$row_number[ring_idx])
+    valid <- rn >= 1L & (rn + 1L) <= length(zpos)
+
+    if (any(valid)) {
+      target <- ring_idx[valid]
+      rings$start[target] <- zpos[rn[valid]]
+      rings$end[target] <- zpos[rn[valid] + 1L] - 1
+    }
+  }
+
+  # Preserve the original behavior: remove rows incomplete in any field after
+  # ring/zpos matching, not only rows missing start/end.
   rings <- tidyr::drop_na(rings)
-  
+
   if (nrow(rings) == 0) {
     stop(
-      "After joining ringwidth with zpos_corr, no valid ring boundaries remain.\nCheck that *_zpos_corr.txt matches *_ringwidth.txt exports.",
+      "After matching ringwidth with zpos_corr, no valid ring boundaries remain.\nCheck that *_zpos_corr.txt matches *_ringwidth.txt exports.",
       call. = FALSE
     )
   }
-  
-  # Build a mapping from density pixel rows to (Sample, Year) using start/end ranges
-  density_map <- rings |>
-    dplyr::select(Sample, Year, start, end, pixelsize) |>
-    dplyr::distinct() |>
-    dplyr::rowwise() |>
-    dplyr::mutate(row_number = list(seq(start, end))) |>
-    tidyr::unnest(cols = c(row_number))
-  
-  Density_corr <- Density_corr |>
-    dplyr::left_join(density_map, by = c("Sample", "row_number")) |>
-    dplyr::arrange(Sample, row_number) |>
-    dplyr::group_by(Sample, Year) |>
-    dplyr::mutate(row_number = dplyr::row_number()) |>
-    dplyr::ungroup()
-  
-  # Remove rows not mapped to a ring-year (gaps in density profile)
-  Density_corr <- Density_corr[!is.na(Density_corr$Year), ]
-  
-  if (nrow(Density_corr) == 0) {
-    stop(
-      "Density data could not be mapped to any rings (no Sample/Year assignments).\nCheck consistency between *_density_corr.txt, *_zpos_corr.txt and *_ringwidth.txt.",
-      call. = FALSE
-    )
+
+  # Clip an interval to the density vector. Positions are 1-based in the files.
+  clip_intervals <- function(ring_table, n_density) {
+    start_idx <- pmax.int(1L, as.integer(ring_table$start))
+    end_idx <- pmin.int(n_density, as.integer(ring_table$end))
+    keep <- !is.na(start_idx) & !is.na(end_idx) & start_idx <= end_idx
+
+    ring_table <- ring_table[keep, , drop = FALSE]
+    ring_table$start_idx <- start_idx[keep]
+    ring_table$end_idx <- end_idx[keep]
+    ring_table
   }
-  
-  # Output: density profile (long format of pixels along rings)
+
+  # Density profile is necessarily pixel-level, but it can still be built
+  # directly from intervals without a many-row join.
   if (output == "density_profile") {
-    out <- Density_corr |>
-      dplyr::select(Sample, Year, row_number, Density) |>
-      dplyr::rename(Pixel_nr_along_ring = row_number) |>
-      dplyr::arrange(Sample, Year, Pixel_nr_along_ring) |>
-      dplyr::group_by(Sample) |>
-      dplyr::mutate(row_number_along_sample = dplyr::row_number()) |>
-      dplyr::ungroup()
+    profile_list <- lapply(common_samples, function(sample_name) {
+      sample_rings <- rings[rings$Sample == sample_name, , drop = FALSE]
+      sample_rings <- sample_rings[order(sample_rings$row_number), , drop = FALSE]
+      density_values <- read_numeric_vector(unname(dens_files[[sample_name]]))
+      sample_rings <- clip_intervals(sample_rings, length(density_values))
+
+      if (nrow(sample_rings) == 0) return(NULL)
+
+      positions <- unlist(
+        Map(seq.int, sample_rings$start_idx, sample_rings$end_idx),
+        use.names = FALSE
+      )
+      years <- rep(sample_rings$Year, sample_rings$end_idx - sample_rings$start_idx + 1L)
+
+      # Match the previous ordering: number pixels within Sample/Year in physical
+      # density-profile order, then return rows ordered by Sample, Year, pixel.
+      physical_order <- order(positions, seq_along(positions))
+      positions <- positions[physical_order]
+      years <- years[physical_order]
+      density_out <- density_values[positions]
+      pixel_in_ring <- ave(seq_along(positions), years, FUN = seq_along)
+
+      output_order <- order(years, pixel_in_ring)
+      data.frame(
+        Sample = rep(sample_name, length(output_order)),
+        Year = years[output_order],
+        Pixel_nr_along_ring = as.integer(pixel_in_ring[output_order]),
+        Density = density_out[output_order],
+        row_number_along_sample = seq_along(output_order),
+        stringsAsFactors = FALSE,
+        check.names = FALSE
+      )
+    })
+
+    profile_list <- Filter(Negate(is.null), profile_list)
+    if (length(profile_list) == 0) {
+      stop(
+        "Density data could not be mapped to any rings (no Sample/Year assignments).\nCheck consistency between *_density_corr.txt, *_zpos_corr.txt and *_ringwidth.txt.",
+        call. = FALSE
+      )
+    }
+
+    out <- dplyr::bind_rows(profile_list)
+    row.names(out) <- NULL
     return(out)
   }
-  
-  
+
   # ──────────────────────────────────────────────────────────────────────────
-  # 6) Density aggregation helpers + density calculations
+  # 6) Density aggregation helpers + direct per-ring calculations
   # ──────────────────────────────────────────────────────────────────────────
-  
+
   mean_top_x <- function(vec, x) {
-    if (x < 0 || x > 1) stop("x should be a fraction between 0 and 1", call. = FALSE)
-    vec <- stats::na.omit(vec)
-    n_top <- ceiling(length(vec) * x)
-    top_values <- sort(vec, decreasing = TRUE)[1:n_top]
-    if (length(top_values) == 0 || all(is.na(top_values))) return(NA_real_)
-    mean(top_values, na.rm = TRUE)
+    vec <- vec[!is.na(vec)]
+    if (length(vec) == 0) return(NA_real_)
+
+    # max(1, ...) preserves the former x=0 behavior while partial sorting avoids
+    # sorting the full vector when only a small upper fraction is requested.
+    n_top <- max(1L, as.integer(ceiling(length(vec) * x)))
+    if (n_top >= length(vec)) return(mean(vec))
+
+    first_top <- length(vec) - n_top + 1L
+    partly_sorted <- sort.int(vec, partial = first_top)
+    mean(partly_sorted[first_top:length(partly_sorted)])
   }
-  
+
   calculate_density <- function(density_values, fun, x) {
     if (length(density_values) == 0 || all(is.na(density_values))) return(NA_real_)
     if (fun == "mean") return(mean(density_values, na.rm = TRUE))
@@ -511,29 +568,15 @@ XCT.read <- function(
     if (fun == "mean_top_x") return(mean_top_x(density_values, x))
     stop("Invalid function specified in `fun` argument.", call. = FALSE)
   }
-  
-  # Density in fraction window along the ring
+
+  # Validate and precompute window settings once, rather than once per group.
   if (densityType == "fraction") {
-    if (length(area) != 2 || any(is.na(as.numeric(area))) || area[1] < 0 || area[2] > 1 || area[1] >= area[2]) {
+    area_num <- suppressWarnings(as.numeric(area))
+    if (length(area_num) != 2 || any(is.na(area_num)) ||
+        area_num[1] < 0 || area_num[2] > 1 || area_num[1] >= area_num[2]) {
       stop("For densityType='fraction', `area` must be c(startFrac, endFrac) with 0<=start<end<=1.", call. = FALSE)
     }
-    
-    Density_corr <- Density_corr |>
-      dplyr::group_by(Sample, Year) |>
-      dplyr::summarise(
-        Density = calculate_density(
-          Density[
-            seq_along(Density) > (area[1] * length(Density)) &
-              seq_along(Density) <= (area[2] * length(Density))
-          ],
-          fun = fun, x = x
-        ),
-        .groups = "drop"
-      )
-  }
-  
-  # Density in fixed micron window from start/end of ring
-  if (densityType == "fixed") {
+  } else {
     if (length(area) != 2) {
       stop("For densityType='fixed', `area` must be c('start'/'end', windowMicrons).", call. = FALSE)
     }
@@ -545,32 +588,85 @@ XCT.read <- function(
     if (is.na(lengthMicron) || lengthMicron <= 0) {
       stop("For densityType='fixed', area[2] must be a positive number (microns).", call. = FALSE)
     }
-    
-    # Convert microns→pixels using the ring's pixelsize (per Sample/Year)
+  }
+
+  select_density_window <- function(values, pixelsize) {
+    n <- length(values)
+    if (n == 0) return(values)
+
+    if (densityType == "fraction") {
+      first_idx <- as.integer(floor(area_num[1] * n) + 1L)
+      last_idx <- as.integer(floor(area_num[2] * n))
+      if (last_idx < first_idx) return(numeric())
+      return(values[first_idx:last_idx])
+    }
+
+    n_pixels_raw <- round(lengthMicron / pixelsize)
+    if (!is.finite(n_pixels_raw)) {
+      if (n_pixels_raw > 0) return(values)
+      return(numeric())
+    }
+
+    n_pixels <- as.integer(n_pixels_raw)
+    if (n_pixels <= 0L) return(numeric())
+    if (n_pixels >= n) return(values)
+
     if (start_or_end == "start") {
-      Density_corr <- Density_corr |>
-        dplyr::group_by(Sample, Year) |>
-        dplyr::summarise(
-          Density = calculate_density(
-            Density[seq_along(Density) <= round(lengthMicron / dplyr::first(pixelsize))],
-            fun = fun, x = x
-          ),
-          .groups = "drop"
-        )
+      values[seq_len(n_pixels)]
     } else {
-      Density_corr <- Density_corr |>
-        dplyr::group_by(Sample, Year) |>
-        dplyr::summarise(
-          Density = calculate_density(
-            Density[seq_along(Density) > (length(Density) - round(lengthMicron / dplyr::first(pixelsize)))],
-            fun = fun, x = x
-          ),
-          .groups = "drop"
-        )
+      values[(n - n_pixels + 1L):n]
     }
   }
-  
-  
+
+  density_results <- vector("list", length(common_samples))
+
+  for (sample_i in seq_along(common_samples)) {
+    sample_name <- common_samples[sample_i]
+    sample_rings <- rings[rings$Sample == sample_name, , drop = FALSE]
+    sample_rings <- sample_rings[order(sample_rings$row_number), , drop = FALSE]
+    density_values <- read_numeric_vector(unname(dens_files[[sample_name]]))
+    sample_rings <- clip_intervals(sample_rings, length(density_values))
+
+    if (nrow(sample_rings) == 0) next
+
+    years <- sort(unique(sample_rings$Year))
+    density_by_year <- vapply(years, function(year_value) {
+      year_rows <- which(sample_rings$Year == year_value)
+
+      # Most years have one interval. The multi-interval path preserves the
+      # original handling of broken-ring records sharing the same year.
+      if (length(year_rows) == 1L) {
+        j <- year_rows
+        values <- density_values[sample_rings$start_idx[j]:sample_rings$end_idx[j]]
+      } else {
+        values <- unlist(lapply(year_rows, function(j) {
+          density_values[sample_rings$start_idx[j]:sample_rings$end_idx[j]]
+        }), use.names = FALSE)
+      }
+
+      values <- select_density_window(values, sample_rings$pixelsize[year_rows[1L]])
+      calculate_density(values, fun = fun, x = x)
+    }, numeric(1))
+
+    density_results[[sample_i]] <- data.frame(
+      Sample = rep(sample_name, length(years)),
+      Year = years,
+      Density = unname(density_by_year),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  density_results <- Filter(Negate(is.null), density_results)
+  if (length(density_results) == 0) {
+    stop(
+      "Density data could not be mapped to any rings (no Sample/Year assignments).\nCheck consistency between *_density_corr.txt, *_zpos_corr.txt and *_ringwidth.txt.",
+      call. = FALSE
+    )
+  }
+
+  Density_corr <- dplyr::bind_rows(density_results) |>
+    dplyr::arrange(Sample, Year)
+
   # ──────────────────────────────────────────────────────────────────────────
   # 7) Return formats: density (dplR-like), or combined RW + density
   # ──────────────────────────────────────────────────────────────────────────
@@ -587,7 +683,7 @@ XCT.read <- function(
     dens$Year <- NULL
     dens <- as.data.frame(dens)
     row.names(dens) <- extent
-    return(as.rwl(dens))
+    return(dplR::as.rwl(dens))
   }
   
   if (output == "ringwidth_density") {
