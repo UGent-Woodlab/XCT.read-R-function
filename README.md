@@ -25,14 +25,14 @@ The main advantage is that the same RingIndicator exports can be used for severa
 > [!TIP]
 > **Most users can start here**
 >
-> If you want ring width plus the mean density of the final quarter of every ring, the default calculation is almost enough:
+> If you want ring width plus the mean density of every ring, the default calculation is enough:
 >
 > ``` r
 > Data <- XCT.read(
 >   path = "Datafolder",
 >   output = "ringwidth_density",
 >   densityType = "fraction",
->   area = c(0.75, 1),
+>   area = c(0, 1),
 >   fun = "mean"
 > )
 > ```
@@ -56,7 +56,7 @@ The included `Datafolder` contains example exports that can be used to run this 
 Install the required R packages if needed:
 
 ``` r
-install.packages(c("tidyverse", "dplR", "knitr"))
+install.packages(c("tidyverse", "dplR"))
 ```
 
 Load the packages and source the function:
