@@ -52,8 +52,8 @@ XCT.Read function reads and calculates ring width and density parameters from tx
 
 ---
 
-## Example use: XCT.Read.Rmd
-An example R Markdown file that showcases the different possible outputs and calculations. 
+## Manual: Intro.qmd/.html
+An qmd and rendered html file that showcases the different possible outputs and calculations. 
 
 ---
 
