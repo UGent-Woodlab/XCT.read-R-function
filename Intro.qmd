@@ -54,26 +54,7 @@ Data <- XCT.read(
 ```
 :::
 
-## Where does it fit in the XCT workflow? hide the code of mermaid
-
-```{mermaid}
-%%| echo: false
-flowchart LR
-    A[X-ray micro-CT data] --> B[CoreProcessor]
-    B --> C[RingIndicator]
-    C --> D[Ring-width indications]
-    C --> E[Corrected density profiles]
-    C --> F[Corrected ring positions]
-    D --> G[XCT.read]
-    E --> G
-    F --> G
-    G --> H[Ring width]
-    G --> I[Annual density]
-    G --> J[Ring width + density]
-    G --> K[Within-ring density profiles]
-    C --> L[Area-of-interest MXD files]
-    L --> G
-```
+## Where does it fit in the XCT workflow? 
 
 `XCT.read()` expects files belonging to the same samples to be together in one folder. For the standard density calculations, filenames are matched by their sample prefix, for example:
 
@@ -115,7 +96,7 @@ The examples below assume that `XCT.Read.qmd`, `XCT.Read.R`, and the `Datafolder
 The `output` argument controls the structure returned by `XCT.read()`.
 
 | `output` | What it returns | Typical use |
-|----|----|----|
+|------------------------|------------------------|------------------------|
 | `"ringwidth"` | Ring-width chronology in `dplR`/RWL-style wide format | Dendrochronological ring-width analyses |
 | `"density"` | Annual density parameter in `dplR`/RWL-style wide format | Density chronologies |
 | `"ringwidth_density"` | Long table with sample, year, ring width and density | Statistics, plotting and data merging |
@@ -238,7 +219,7 @@ A **fixed** window represents the same physical distance in every ring, but it o
 The `fun` argument determines how the density values inside the selected window are reduced to one value per ring.
 
 | `fun` | Calculation | Example use |
-|----|----|----|
+|------------------------|------------------------|------------------------|
 | `"mean"` | arithmetic mean | Average earlywood/latewood density |
 | `"median"` | median | More robust central density |
 | `"min"` | minimum | Minimum density in the selected region |
