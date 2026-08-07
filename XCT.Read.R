@@ -1,12 +1,12 @@
 
-#### XCT.read: read XCT Toolchain indication files. fast version 2026-08-06 ####
+#### XCT.read: read XCT Toolchain indication files. version 2026-08-06 ####
 
 
 XCT.read <- function(
     path,                         # A path to the folder containing the txt files
     output = "ringwidth_density", # "ringwidth", "density", "MXD", "ringwidth_density", "density_profile". This is the output type, it can be "ringwidth" (dplR format of ring width), "density" (dplR format of density parameter), "MXD" (dplR format of MXD, only applicable in the case of MXD extraction by percentile in area of interest),  "ringwidth_density" (long format of the sample, year, ring width, and density), or "density_profile" (long format of the sample, year, and density profile in that year)
     densityType = "fraction",     # "fraction" or "fixed". This is the type of density to calculate. "fraction" calculates the density in a variable width window that corresponds to two fraction numbers that go from 0 (start ring) to 1 (end ring), set in variable area. "fixed" calculates the density in a fixed width window, starting from the beginning or the end of the ring. set in variable area.
-    area = c(0.75, 1),            # Fraction window (0-1) or c("start"/"end", microns). This is the fraction of the ring where the density parameter is calculated. If densityType = "fraction" this is a vector of two numbers that go from 0 (start ring) to 1 (end ring). If densityType = "fixed" this is a vector with "start" or "end" as the first variable, and the width of the window in micrometers as the second variable.
+    area = c(0, 1),            # Fraction window (0-1) or c("start"/"end", microns). This is the fraction of the ring where the density parameter is calculated. If densityType = "fraction" this is a vector of two numbers that go from 0 (start ring) to 1 (end ring). If densityType = "fixed" this is a vector with "start" or "end" as the first variable, and the width of the window in micrometers as the second variable.
     fun = "mean",                 # "mean","median","min","max","mean_top_x". The function to calculate the density in the selected area, can be "mean", "median", "min", "max", or "mean_top_x". "mean_top_x" calculates the mean of the x highest values in the selected area, the variable x should be set to a fraction between 0 and 1.
     x = 0.2,                      # Fraction of the highest values to calculate the mean. Only used if fun = "mean_top_x".
     removeNarrowRings = FALSE,    # TRUE or FALSE. Removes density parameters of rings that are too small, set in minRingWidth. Can be either 
@@ -231,8 +231,6 @@ XCT.read <- function(
   #    We will also do the resolution consistency check here.
   # ──────────────────────────────────────────────────────────────────────────
   
-  # Fast readers for the simple numeric text formats produced by RingIndicator.
-  # `scan()` avoids the parser/tibble overhead of readr for these one-purpose files.
   read_numeric_vector <- function(file) {
     scan(
       file = file,
@@ -259,7 +257,6 @@ XCT.read <- function(
       na.strings = c("NaN", "NA")
     )
 
-    # `scan()` returns one vector per expected column.
     lengths_found <- lengths(raw)
     if (length(unique(lengths_found)) != 1L) {
       stop(sprintf(
@@ -423,11 +420,7 @@ XCT.read <- function(
   
   
   # ──────────────────────────────────────────────────────────────────────────
-  # 5) Read z-position boundaries and process density directly by interval
-  #
-  # The previous implementation expanded every ring from start:end into a large
-  # pixel-level `density_map`, unnested it, and joined it to all density rows.
-  # That can dominate both runtime and memory. Here, each density vector is read
+  # 5) Read z-position boundaries and process density directly by interval. Each density vector is read
   # once and ring intervals are addressed directly with vector slices.
   # ──────────────────────────────────────────────────────────────────────────
 
@@ -468,8 +461,7 @@ XCT.read <- function(
     }
   }
 
-  # Preserve the original behavior: remove rows incomplete in any field after
-  # ring/zpos matching, not only rows missing start/end.
+  # remove rows incomplete in any field after ring/zpos matching, not only rows missing start/end.
   rings <- tidyr::drop_na(rings)
 
   if (nrow(rings) == 0) {
@@ -508,7 +500,7 @@ XCT.read <- function(
       )
       years <- rep(sample_rings$Year, sample_rings$end_idx - sample_rings$start_idx + 1L)
 
-      # Match the previous ordering: number pixels within Sample/Year in physical
+      # Ordering: number pixels within Sample/Year in physical
       # density-profile order, then return rows ordered by Sample, Year, pixel.
       physical_order <- order(positions, seq_along(positions))
       positions <- positions[physical_order]
@@ -549,7 +541,7 @@ XCT.read <- function(
     vec <- vec[!is.na(vec)]
     if (length(vec) == 0) return(NA_real_)
 
-    # max(1, ...) preserves the former x=0 behavior while partial sorting avoids
+    # max(1, ...) preserves the x=0 behavior while partial sorting avoids
     # sorting the full vector when only a small upper fraction is requested.
     n_top <- max(1L, as.integer(ceiling(length(vec) * x)))
     if (n_top >= length(vec)) return(mean(vec))
@@ -634,7 +626,7 @@ XCT.read <- function(
       year_rows <- which(sample_rings$Year == year_value)
 
       # Most years have one interval. The multi-interval path preserves the
-      # original handling of broken-ring records sharing the same year.
+      # handling of broken-ring records sharing the same year.
       if (length(year_rows) == 1L) {
         j <- year_rows
         values <- density_values[sample_rings$start_idx[j]:sample_rings$end_idx[j]]
