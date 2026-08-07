@@ -1,87 +1,449 @@
-<p align="center">
-    <h1 align="center">XCT.read</h1>
-</p>
+<!-- README.md is generated from README.qmd. Edit README.qmd, then run `quarto render README.qmd`. -->
 
+# XCT.read: reading tree-ring width and density data
 
+*A practical guide to the XCT.read R function*
+
+**Louis Verschuren · Vladimir Matskovsky · Jan Van den Bulcke**
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.14654939.svg)](https://doi.org/10.5281/zenodo.14654939)
 
+## What does `XCT.read()` do?
 
+`XCT.read()` reads the text files exported by **RingIndicator** and converts them into analysis-ready tree-ring width and X-ray density data.
 
-[Verschuren, Louis![ORCID logo](https://info.orcid.org/wp-content/uploads/2019/11/orcid_16x16.png)](https://orcid.org/0000-0002-3102-4588)[^aut][^cre][^UG-WL];
-[Matskovsky, Vladimir![ORCID logo](https://info.orcid.org/wp-content/uploads/2019/11/orcid_16x16.png)](https://orcid.org/0000-0002-3771-239X)[^aut][^UG-WL];
-[Van den Bulcke, Jan![ORCID logo](https://info.orcid.org/wp-content/uploads/2019/11/orcid_16x16.png)](https://orcid.org/0000-0003-2939-5408)[^aut][^UG-WL]
+The function can return:
 
-[^aut]: author
-[^cre]: contact person
-[^UG-WL]: UGent-Woodlab
+- annual **ring width**;
+- an annual **density parameter** calculated from a selected part of each ring;
+- **ring width and density together** in long format;
+- the complete **within-ring density profile**; or
+- **MXD** values exported from RingIndicator area-of-interest analyses.
 
+The main advantage is that the same RingIndicator exports can be used for several density definitions without having to re-export or manually manipulate the profiles.
 
+> [!TIP]
+> **Most users can start here**
+>
+> If you want ring width plus the mean density of the final quarter of every ring, the default calculation is almost enough:
+>
+> ``` r
+> Data <- XCT.read(
+>   path = "Datafolder",
+>   output = "ringwidth_density",
+>   densityType = "fraction",
+>   area = c(0.75, 1),
+>   fun = "mean"
+> )
+> ```
 
-This is the repository for the XCT.Read R-function. This function was created to easily read and calculate ring width and density parameters using the txt-formatted ring indications and density profile output from the MATLAB-based [RingIndicator software](https://github.com/UGent-Woodlab/XCT-toolchain-compiled), created at UGent-Woodlab (more info on our [website](https://dendrochronomics.ugent.be/) and in [this paper](https://doi.org/10.1016/j.dendro.2025.126343)). The section of the profile where a density parameter is calculated can be set by the user: either a fraction of the ring (e.g. the second quarter of each ring) or a fixed width (e.g. the last 100 µm of each ring). The output of the function is a dplR or a long format data frame.
+## Where does it fit in the XCT workflow?
 
+![XCT.read workflow](xct-workflow.svg)
 
+`XCT.read()` expects files belonging to the same samples to be together in one folder. For the standard density calculations, filenames are matched by their sample prefix, for example:
 
-#####  Table of Contents
+``` text
+L-722-1_ringwidth.txt
+L-722-1_density_corr.txt
+L-722-1_zpos_corr.txt
+```
 
-- [ XCT.Read](#function-xctreadr)
-- [ Example use](#example-use-xctreadrmd)
-- [ Test data](#test-data-folder)
-- [ Getting Started](#getting-started)
-- [ Cite our work](#cite-our-work)
-- [ License](#license)
+The included `Datafolder` contains example exports that can be used to run this document.
 
----
+## Setup
 
-##  Function: XCT.Read.R
-XCT.Read function reads and calculates ring width and density parameters from txt-formatted ring indications and density profile output. The parameters are: 
-- path: A path to the folder containing the txt files. 
-- output: The output type, can be "ringwidth" (dplR format of ring width), "density" (dplR format of density parameter), "MXD" (dplR format of MXD, only applicable in the case of MXD extraction by percentile in area of interest), "ringwidth_density" (long format of the sample, year, ring width, and density), or "density_profile" (long format of the sample, year, and density profile in that year)
-- densityType: The type of density to calculate, can be "fraction" or "fixed". "fraction" calculates the density in a variable width window that corresponds to two fraction numbers that go from 0 (start ring) to 1 (end ring), set in variable area. "fixed" calculates the density in a fixed width window, starting from the beginning or the end of the ring. set in variable area.
-- area: Fraction of the ring to calculate the density parameter. If densityType = "fraction" this is a vector of two numbers that go from 0 (start ring) to 1 (end ring). If densityType = "fixed" this is a vector with "start" or "end" as the first variable, and the width of the window in micrometers as the second variable.
-- fun: The function to calculate the density in the selected area, can be "mean", "median", "min", "max", or "mean_top_x". "mean_top_x" calculates the mean of the x highest values in the selected area, the variable x should be set to a fraction between 0 and 1.
-- x: Fraction of the highest values to calculate the mean. Only used if fun = "mean_top_x".
-- removeNarrowRings: Removes density parameters of rings that are too small, set in minRingWidth. Can be either TRUE or FALSE.
-- minRingWidth: Minimum width of the ring in mm that should be used in density calculations, only if removeNarrowRings = TRUE.
-- overruleResolution: Overrule the resolution of the XCT data txts. If TRUE, the resolution of the XCT data is set to the resolution parameter. If FALSE, the resolution is set to the value in the ringwidth.txt file.
-- resolution: The resolution of the data in µm/pixel. Only used if overruleResolution = TRUE.
-- autoFixWeirdResolution: Check and optionally fix weird resolution outliers (factor 10 off vs most common resolution), TRUE by default.
-- verbose: Print additional messages about the loading process (e.g. resolution summary), TRUE by default
+Install the required R packages if needed:
 
+``` r
+install.packages(c("tidyverse", "dplR", "knitr"))
+```
 
+Load the packages and source the function:
 
----
+```r
+library(tidyverse)
+library(dplR)
+library(knitr)
 
-## Manual: Intro.qmd/.html
-An qmd and rendered html file that showcases the different possible outputs and calculations. 
+source("XCT.Read.R")
 
----
+data_path <- "Datafolder"
+```
 
-## Test data folder
-Some example txt indication files. 
+> [!NOTE]
+> The examples below assume that `README.qmd`, `XCT.Read.R`, and the `Datafolder` directory are in the repository root. If your data are elsewhere, change `data_path` to that folder.
 
----
+## Choosing an output
 
-## Getting started
+The `output` argument controls the structure returned by `XCT.read()`.
 
-Before running the function, ensure that you have the following packages installed and loaded:
-- library("tidyverse")
-- library("dplR")
+| `output` | What it returns | Typical use |
+|----|----|----|
+| `"ringwidth"` | Ring-width chronology in `dplR`/RWL-style wide format | Dendrochronological ring-width analyses |
+| `"density"` | Annual density parameter in `dplR`/RWL-style wide format | Density chronologies |
+| `"ringwidth_density"` | Long table with sample, year, ring width and density | Statistics, plotting and data merging |
+| `"density_profile"` | Pixel-level density values within each annual ring | Inspecting within-ring density structure |
+| `"MXD"` | MXD chronology read from RingIndicator `*_MXD.rwl` files | Area-of-interest MXD exports |
 
----
+### Ring width only
 
-## Cite our work
+```r
+RW <- XCT.read(
+  path = data_path,
+  output = "ringwidth"
+)
+```
 
-You can find the paper where the entire pipeline is described [here](https://doi.org/10.1016/j.dendro.2025.126343). Please cite the following papers when using our toolchain or software: [Van den Bulcke et al. 2014](https://doi.org/10.1016/j.dendro.2013.07.001), [De Mil et al. 2016](https://doi.org/10.1093/aob/mcw063), [Van den Bulcke et al. 2019](https://doi.org/10.1093/aob/mcz126), [De Mil and Van den Bulcke 2023](https://dx.doi.org/10.3791/65208), and [Verschuren et al. 2025](https://doi.org/10.1016/j.dendro.2025.126343).
+The returned object is convenient for functions in `dplR`: years are row names and individual samples are columns.
 
-When using the software, also cite the proper Zenodo DOI: [XCT Toolchain compiled packages](https://doi.org/10.5281/zenodo.14677732) and [XCT.Read R function](https://doi.org/10.5281/zenodo.14654939). 
+### Ring width and density together
 
-A bib file of all these can be downloaded [here](https://dendrochronomics.ugent.be/downloads/HowToCite.bib).
+For many analyses, `"ringwidth_density"` is the most convenient output because it is already in long format.
 
----
+```r
+RW_density <- XCT.read(
+  path = data_path,
+  output = "ringwidth_density",
+  densityType = "fraction",
+  area = c(0.75, 1),
+  fun = "mean"
+)
+```
 
-##  License
+```r
+head(RW_density) |>
+  kable(digits = 4)
+```
 
-This software is protected under the [GNU AGPLv3](https://choosealicense.com/licenses/agpl-3.0/) license. 
+| Sample | Year | Density | RW |
+|:--|--:|--:|--:|
+| 2-2-23-1 | 1976 | 788.0560 | 4.9664 |
+| 2-2-23-1 | 1977 | 781.5666 | 3.5274 |
+| 2-2-23-1 | 1978 | 855.8561 | 0.0140 |
+| 2-2-23-1 | 1979 | 858.2529 | 0.0090 |
+| 2-2-23-1 | 1980 | 858.2529 | 0.0090 |
+| 2-2-23-1 | 1981 | 840.7158 | 1.4911 |
 
----
+This example defines density as the **mean density in the final 25% of each ring**.
+
+## Defining the density window
+
+A density statistic is only meaningful after defining **which part of the ring** should be used. `XCT.read()` supports two approaches.
+
+### 1. Fraction of each ring
+
+With `densityType = "fraction"`, the window is defined relative to ring width. The ring runs from `0` at its beginning to `1` at its end.
+
+``` text
+Ring start                                                          Ring end
+0                                                                   1
+|----------------|----------------|----------------|----------------|
+0              0.25              0.50             0.75              1
+                                                   <--------------- >
+                                                   area = c(0.75, 1)
+```
+
+For example:
+
+``` r
+Density_fraction <- XCT.read(
+  path = data_path,
+  output = "density",
+  densityType = "fraction",
+  area = c(0.75, 1),
+  fun = "mean"
+)
+```
+
+Because the window scales with the width of every individual ring, `c(0.75, 1)` always means the last quarter, irrespective of whether a ring is narrow or wide.
+
+Common examples are:
+
+| `area`       | Ring section  |
+|--------------|---------------|
+| `c(0, 1)`    | complete ring |
+| `c(0, 0.5)`  | first half    |
+| `c(0.5, 1)`  | second half   |
+| `c(0.75, 1)` | final quarter |
+| `c(0.9, 1)`  | final 10%     |
+
+### 2. Fixed physical width
+
+With `densityType = "fixed"`, the selected window is a fixed number of micrometres from either the beginning or the end of the ring.
+
+For example, the final 100 µm:
+
+``` r
+Density_last_100um <- XCT.read(
+  path = data_path,
+  output = "density",
+  densityType = "fixed",
+  area = c("end", 100),
+  fun = "mean"
+)
+```
+
+Or the first 200 µm:
+
+``` r
+Density_first_200um <- XCT.read(
+  path = data_path,
+  output = "density",
+  densityType = "fixed",
+  area = c("start", 200),
+  fun = "mean"
+)
+```
+
+> [!IMPORTANT]
+> **Fraction and fixed windows answer different questions**
+>
+> A **fraction** represents the same relative part of every ring, but its physical width changes with ring width.
+>
+> A **fixed** window represents the same physical distance in every ring, but it occupies a larger fraction of narrow rings than of wide rings.
+
+## Choosing the density statistic
+
+The `fun` argument determines how the density values inside the selected window are reduced to one value per ring.
+
+| `fun` | Calculation | Example use |
+|----|----|----|
+| `"mean"` | arithmetic mean | Average earlywood/latewood density |
+| `"median"` | median | More robust central density |
+| `"min"` | minimum | Minimum density in the selected region |
+| `"max"` | maximum | Maximum observed density |
+| `"mean_top_x"` | mean of the highest fraction of values | A less pixel-sensitive high-density metric |
+
+### Mean of the highest values
+
+`"mean_top_x"` uses the additional argument `x`. For example, this calculates the mean of the highest 20% of density values found in the final quarter of each ring:
+
+``` r
+Density_top20 <- XCT.read(
+  path = data_path,
+  output = "density",
+  densityType = "fraction",
+  area = c(0.75, 1),
+  fun = "mean_top_x",
+  x = 0.20
+)
+```
+
+This differs from `fun = "max"`: a maximum is determined by one value, whereas `mean_top_x` summarizes a group of high values.
+
+## Removing very narrow rings from density calculations
+
+Very narrow rings may contain too few pixels for a meaningful density statistic. They can be excluded from the **density calculation** using `removeNarrowRings` and `minRingWidth`.
+
+``` r
+Data_filtered <- XCT.read(
+  path = data_path,
+  output = "ringwidth_density",
+  densityType = "fraction",
+  area = c(0.75, 1),
+  fun = "mean",
+  removeNarrowRings = TRUE,
+  minRingWidth = 0.030
+)
+```
+
+`minRingWidth` is expressed in **mm**. In this example, density is not calculated for rings narrower than 0.030 mm.
+
+> [!NOTE]
+> With `removeNarrowRings = TRUE`, rings below the threshold are excluded from the density calculation. If you also need the complete ring-width chronology, read `output = "ringwidth"` separately and join it to the density result by year/sample as needed.
+
+## Resolution handling
+
+Ring width is stored in pixels in the RingIndicator export and converted to physical width using the reported pixel size.
+
+By default, `XCT.read()` uses the resolution stored in the `*_ringwidth.txt` files.
+
+``` r
+Data <- XCT.read(
+  path = data_path,
+  output = "ringwidth_density",
+  overruleResolution = FALSE
+)
+```
+
+### Automatically handling suspicious resolution values
+
+With the default `autoFixWeirdResolution = TRUE`, the function checks for strongly deviating resolution values and can replace obvious factor-of-ten outliers with the most common resolution found among samples.
+
+``` r
+Data <- XCT.read(
+  path = data_path,
+  output = "ringwidth_density",
+  autoFixWeirdResolution = TRUE,
+  verbose = TRUE
+)
+```
+
+Keep `verbose = TRUE` when first loading a dataset so that the resolution summary and possible warnings are visible.
+
+### Manually overriding resolution
+
+If you know that all profiles should use a specific resolution, you can force it:
+
+``` r
+Data <- XCT.read(
+  path = data_path,
+  output = "ringwidth_density",
+  overruleResolution = TRUE,
+  resolution = 1
+)
+```
+
+Here, `resolution = 1` means **1 µm per pixel**.
+
+> [!WARNING]
+> Only override the reported resolution when you know the correct voxel/pixel size. A wrong resolution directly changes calculated ring widths and fixed-width density windows.
+
+## Getting the complete density profile
+
+Use `output = "density_profile"` when you want to analyse or visualise the density variation inside annual rings rather than reducing each ring to a single value.
+
+``` r
+Profile <- XCT.read(
+  path = data_path,
+  output = "density_profile"
+)
+```
+
+The returned long table contains the sample, year, pixel number along the ring, and density.
+
+## Reading MXD files
+
+When maximum latewood density has already been extracted in RingIndicator using areas of interest, use:
+
+``` r
+MXD <- XCT.read(
+  path = data_path,
+  output = "MXD"
+)
+
+head(MXD)
+```
+
+This output uses the sample-specific `*_MXD.rwl` files. The combined `ALL_MXD.rwl` file is not needed for this step.
+
+## Function arguments at a glance
+
+| Argument | Purpose | Typical value |
+|:--|:--|:--|
+| `path` | Folder containing RingIndicator export files | `"Datafolder"` |
+| `output` | Choose the returned data structure | `"ringwidth_density"` |
+| `densityType` | Use a relative or physical density window | `"fraction"` or `"fixed"` |
+| `area` | Start/end of the density window | `c(0.75, 1)` or `c("end", 100)` |
+| `fun` | Statistic calculated inside the window | `"mean"` |
+| `x` | Highest fraction used by `mean_top_x` | `0.20` |
+| `removeNarrowRings` | Exclude narrow rings from density calculations | `FALSE` |
+| `minRingWidth` | Minimum ring width when filtering (mm) | `0.030` |
+| `overruleResolution` | Force one resolution for all samples | `FALSE` |
+| `resolution` | Forced resolution (µm/pixel) | `1` |
+| `autoFixWeirdResolution` | Correct obvious factor-of-ten resolution outliers | `TRUE` |
+| `verbose` | Print loading and resolution information | `TRUE` |
+
+## A complete analysis example
+
+The following pattern is a good starting point for an analysis script.
+
+``` r
+library(tidyverse)
+library(dplR)
+source("XCT.Read.R")
+
+Data <- XCT.read(
+  path = "Datafolder",
+  output = "ringwidth_density",
+  densityType = "fraction",
+  area = c(0.75, 1),
+  fun = "mean",
+  removeNarrowRings = TRUE,
+  minRingWidth = 0.030,
+  verbose = TRUE
+)
+
+# Inspect the result
+summary(Data)
+
+# Missing density values after filtering
+Data |>
+  filter(is.na(Density))
+
+# Plot one sample
+sample_to_plot <- Data |>
+  count(Sample, sort = TRUE) |>
+  slice(1) |>
+  pull(Sample)
+
+Data |>
+  filter(Sample == sample_to_plot) |>
+  ggplot(aes(Year, Density)) +
+  geom_line() +
+  labs(
+    title = paste("Density series:", sample_to_plot),
+    x = "Year",
+    y = "Density"
+  ) +
+  theme_minimal()
+```
+
+## Troubleshooting
+
+### "No eligible ring width files found"
+
+Check that the folder contains files ending in `_ringwidth.txt` and that `path` points to the correct directory.
+
+### Density output cannot be calculated
+
+For the standard density outputs, each sample should have matching corrected density and ring-position files, normally:
+
+``` text
+<sample>_density_corr.txt
+<sample>_zpos_corr.txt
+<sample>_ringwidth.txt
+```
+
+### Some samples disappear
+
+Check the messages printed with `verbose = TRUE`. Differences between sample names across file groups or incomplete exports can prevent matching.
+
+### Density values are missing for narrow rings
+
+If `removeNarrowRings = TRUE`, this may be intentional. Compare the ring width with `minRingWidth`.
+
+### Ring widths appear ten times too large or too small
+
+Inspect the resolution summary. Verify the `pixelsize` values in the RingIndicator export and the settings of `autoFixWeirdResolution`, `overruleResolution`, and `resolution`.
+
+## Citation and further information
+
+`XCT.read()` is part of the **UGent-Woodlab X-ray micro-CT tree-ring densitometry workflow** described by Verschuren and co-authors.
+
+- Project website: <https://dendrochronomics.ugent.be/>
+- XCT.read GitHub repository: <https://github.com/UGent-Woodlab/XCT.read-R-function>
+- XCT.read Zenodo DOI: <https://doi.org/10.5281/zenodo.14654939>
+- XCT Toolchain compiled packages: <https://doi.org/10.5281/zenodo.14677732>
+- Pipeline paper: <https://doi.org/10.1016/j.dendro.2025.126343>
+
+When using the XCT toolchain or `XCT.read()` in published work, please cite the relevant software and methods papers:
+
+- [Van den Bulcke et al. (2014)](https://doi.org/10.1016/j.dendro.2013.07.001)
+- [De Mil et al. (2016)](https://doi.org/10.1093/aob/mcw063)
+- [Van den Bulcke et al. (2019)](https://doi.org/10.1093/aob/mcz126)
+- [De Mil & Van den Bulcke (2023)](https://doi.org/10.3791/65208)
+- [Verschuren et al. (2025)](https://doi.org/10.1016/j.dendro.2025.126343)
+
+A BibTeX file containing the recommended references is available from the [Dendrochronomics website](https://dendrochronomics.ugent.be/downloads/HowToCite.bib).
+
+### Authors
+
+- [Louis Verschuren](https://orcid.org/0000-0002-3102-4588)
+- [Vladimir Matskovsky](https://orcid.org/0000-0002-3771-239X)
+- [Jan Van den Bulcke](https://orcid.org/0000-0003-2939-5408)
+
+## License
+
+This software is distributed under the **GNU AGPLv3** license. See the repository `LICENSE` file for the full license text.
