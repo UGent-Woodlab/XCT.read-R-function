@@ -64,15 +64,11 @@ Load the packages and source the function:
 ```r
 library(tidyverse)
 library(dplR)
-library(knitr)
 
 source("XCT.Read.R")
 
 data_path <- "Datafolder"
 ```
-
-> [!NOTE]
-> The examples below assume that `README.qmd`, `XCT.Read.R`, and the `Datafolder` directory are in the repository root. If your data are elsewhere, change `data_path` to that folder.
 
 ## Choosing an output
 
