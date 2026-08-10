@@ -22,6 +22,16 @@ The function can return:
 
 The main advantage is that the same RingIndicator exports can be used for several density definitions without having to re-export or manually manipulate the profiles.
 
+`XCT.read()` expects files belonging to the same samples to be together in one folder. For the standard density calculations, filenames are matched by their sample prefix, for example:
+
+``` text
+L-722-1_ringwidth.txt
+L-722-1_density_corr.txt
+L-722-1_zpos_corr.txt
+```
+
+The included `Datafolder` contains example txt files. 
+
 > [!TIP]
 > **Most users can start here**
 >
@@ -37,19 +47,6 @@ The main advantage is that the same RingIndicator exports can be used for severa
 > )
 > ```
 
-## Where does it fit in the XCT workflow?
-
-![XCT.read workflow](xct-workflow.svg)
-
-`XCT.read()` expects files belonging to the same samples to be together in one folder. For the standard density calculations, filenames are matched by their sample prefix, for example:
-
-``` text
-L-722-1_ringwidth.txt
-L-722-1_density_corr.txt
-L-722-1_zpos_corr.txt
-```
-
-The included `Datafolder` contains example exports that can be used to run this document.
 
 ## Setup
 
@@ -105,11 +102,6 @@ RW_density <- XCT.read(
   area = c(0.75, 1),
   fun = "mean"
 )
-```
-
-```r
-head(RW_density) |>
-  kable(digits = 4)
 ```
 
 | Sample | Year | Density | RW |
@@ -245,9 +237,6 @@ Data_filtered <- XCT.read(
 ```
 
 `minRingWidth` is expressed in **mm**. In this example, density is not calculated for rings narrower than 0.030 mm.
-
-> [!NOTE]
-> With `removeNarrowRings = TRUE`, rings below the threshold are excluded from the density calculation. If you also need the complete ring-width chronology, read `output = "ringwidth"` separately and join it to the density result by year/sample as needed.
 
 ## Resolution handling
 
@@ -416,7 +405,7 @@ Inspect the resolution summary. Verify the `pixelsize` values in the RingIndicat
 
 ## Citation and further information
 
-`XCT.read()` is part of the **UGent-Woodlab X-ray micro-CT tree-ring densitometry workflow** described by Verschuren and co-authors.
+`XCT.read()` is part of the **UGent-Woodlab X-ray micro-CT tree-ring densitometry workflow**. 
 
 - Project website: <https://dendrochronomics.ugent.be/>
 - XCT.read GitHub repository: <https://github.com/UGent-Woodlab/XCT.read-R-function>
@@ -432,7 +421,7 @@ When using the XCT toolchain or `XCT.read()` in published work, please cite the 
 - [De Mil & Van den Bulcke (2023)](https://doi.org/10.3791/65208)
 - [Verschuren et al. (2025)](https://doi.org/10.1016/j.dendro.2025.126343)
 
-A BibTeX file containing the recommended references is available from the [Dendrochronomics website](https://dendrochronomics.ugent.be/downloads/HowToCite.bib).
+A BibTeX file containing the recommended references is available [here](https://dendrochronomics.ugent.be/downloads/HowToCite.bib).
 
 ### Authors
 
