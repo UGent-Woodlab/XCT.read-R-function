@@ -1,5 +1,5 @@
 
-#### XCT.read: read XCT Toolchain indication files. version 2026-08-06 ####
+#### XCT.read: read XCT Toolchain indication files. version 2026-09-04 ####
 
 
 XCT.read <- function(
@@ -9,8 +9,7 @@ XCT.read <- function(
     area = c(0, 1),            # Fraction window (0-1) or c("start"/"end", microns). This is the fraction of the ring where the density parameter is calculated. If densityType = "fraction" this is a vector of two numbers that go from 0 (start ring) to 1 (end ring). If densityType = "fixed" this is a vector with "start" or "end" as the first variable, and the width of the window in micrometers as the second variable.
     fun = "mean",                 # "mean","median","min","max","mean_top_x". The function to calculate the density in the selected area, can be "mean", "median", "min", "max", or "mean_top_x". "mean_top_x" calculates the mean of the x highest values in the selected area, the variable x should be set to a fraction between 0 and 1.
     x = 0.2,                      # Fraction of the highest values to calculate the mean. Only used if fun = "mean_top_x".
-    removeNarrowRings = FALSE,    # TRUE or FALSE. Removes density parameters of rings that are too small, set in minRingWidth. Can be either 
-    minRingWidth = 0.030,         # Minimum width of the ring in mm that should be used in density calculations, only if removeNarrowRings = TRUE
+    excludeRings = TRUE,          # TRUE or FALSE. Honour the '*_EXCLUDE.txt' files written by RingIndicator: the density of every ring listed there is returned as NA, both for the annual density parameter and for the density profile. The ring itself, its calendar year and its ring width are kept. TRUE by default.
     overruleResolution = FALSE,   # Overrule the resolution of the XCT data txts. If TRUE, the resolution of the XCT data is set to the resolution parameter. If FALSE, the resolution is set to the value in the ringwidth.txt file.
     resolution = 1,               # The resolution of the data in µm/pixel. Only used if overruleResolution = TRUE.
     autoFixWeirdResolution = TRUE,# Check and optionally fix weird resolutions (factor 10 off vs most common), TRUE by default
@@ -65,11 +64,8 @@ XCT.read <- function(
   if (!is.numeric(x) || length(x) != 1 || is.na(x) || x < 0 || x > 1) {
     stop("`x` must be a single number between 0 and 1.", call. = FALSE)
   }
-  if (!is.logical(removeNarrowRings) || length(removeNarrowRings) != 1) {
-    stop("`removeNarrowRings` must be TRUE/FALSE.", call. = FALSE)
-  }
-  if (!is.numeric(minRingWidth) || length(minRingWidth) != 1 || is.na(minRingWidth) || minRingWidth <= 0) {
-    stop("`minRingWidth` must be a single positive number (mm).", call. = FALSE)
+  if (!is.logical(excludeRings) || length(excludeRings) != 1 || is.na(excludeRings)) {
+    stop("`excludeRings` must be TRUE/FALSE.", call. = FALSE)
   }
   if (!is.logical(overruleResolution) || length(overruleResolution) != 1) {
     stop("`overruleResolution` must be TRUE/FALSE.", call. = FALSE)
@@ -106,7 +102,12 @@ XCT.read <- function(
   needs_density <- output %in% c("density", "ringwidth_density", "density_profile")
   dens_files <- list.files(path, pattern = "_density_corr\\.txt$", full.names = TRUE)
   zpos_files <- list.files(path, pattern = "_zpos_corr\\.txt$", full.names = TRUE)
-  
+
+  # Rings the operator took out of densitometry in RingIndicator. Optional: a
+  # core with nothing excluded has no file at all (RingIndicator deletes it
+  # rather than writing an empty one, so a stale file cannot silently re-exclude).
+  excl_files <- list.files(path, pattern = "_EXCLUDE\\.txt$", full.names = TRUE)
+
   if (needs_density && length(dens_files) == 0) {
     stop(sprintf(
       "Requested output='%s' requires '*_density_corr.txt' files, but none were found in '%s'.",
@@ -240,6 +241,27 @@ XCT.read <- function(
     )
   }
 
+  # Ring numbers listed in a '*_EXCLUDE.txt'. RingIndicator writes one integer
+  # per line ('%d'), and those integers are ring-width numbers: position in the
+  # ring list, i.e. the row number in '*_ringwidth.txt'. Read defensively - the
+  # file can be hand-edited, and a stale or nonsensical entry is not a reason to
+  # abort a whole load (this mirrors ri.io.readExcluded on the RingIndicator side).
+  read_excluded_file <- function(file) {
+    if (!file.exists(file)) return(integer(0))
+    lines <- tryCatch(readLines(file, warn = FALSE), error = function(e) character(0))
+    if (!length(lines)) return(integer(0))
+
+    # Drop comment/header lines and keep the first numeric token per line.
+    lines <- trimws(lines)
+    lines <- lines[nzchar(lines) & !grepl("^[#%!]", lines)]
+    if (!length(lines)) return(integer(0))
+    tok <- sub("^[,;[:space:]]*([^,;[:space:]]+).*$", "\\1", lines)
+    vals <- suppressWarnings(as.numeric(tok))
+    vals <- vals[is.finite(vals) & vals >= 1]
+    if (!length(vals)) return(integer(0))
+    sort(unique(as.integer(round(vals))))
+  }
+
   read_ringwidth_file <- function(file) {
     raw <- scan(
       file = file,
@@ -272,9 +294,13 @@ XCT.read <- function(
     sample_name <- sub("_ringwidth\\.txt$", "", basename(file))
     dat <- read_ringwidth_file(file)
 
-    # Add sample id + a row index within this file (used to address z-position boundaries).
+    # Add sample id + a row index within this file (used to address z-position
+    # boundaries, and to match the ring numbers in '*_EXCLUDE.txt'). n_widths is
+    # kept so that a stale exclusion naming a ring past the end of the core can
+    # still be recognised after the fracture entries have been filtered out.
     dat$Sample <- sample_name
     dat$row_number <- seq_len(nrow(dat))
+    dat$n_widths <- nrow(dat)
 
     needed_cols <- c("width", "Year", "pixelsize", "BrokenRingType", "Sample", "row_number")
     missing_cols <- setdiff(needed_cols, names(dat))
@@ -300,7 +326,9 @@ XCT.read <- function(
   # 3a) Resolution table + optional auto-correction (factor 10 off)
   # ──────────────────────────────────────────────────────────────────────────
   
-  # Use one pixelsize per core (Sample). Take the most frequent non-NA per Sample.
+  # One pixelsize per core (Sample). RingIndicator writes the same resolution on
+  # every row of a '*_ringwidth.txt', so the first non-NA value is the core's
+  # resolution; nothing here tries to reconcile a file that disagrees with itself.
   px_by_sample <- rings |>
     dplyr::filter(!is.na(pixelsize)) |>
     dplyr::group_by(Sample) |>
@@ -364,19 +392,54 @@ XCT.read <- function(
     message(sprintf("\nNote: overruleResolution=TRUE → forcing pixelsize=%s µm/pixel for all cores.", resolution))
     rings$pixelsize <- resolution
   }
-  
+
+  # Same plausibility band RingIndicator refuses to open a core outside of
+  # (ri.io.tiff.plausibleResolution: 0.1 - 1000 µm/pixel). A value outside it is
+  # almost always a unit mix-up (pixels per cm read as µm per pixel, or DPI), and
+  # it silently rescales every ring width and every fixed-width density window.
+  # Only warned about here: files predating that check exist, and the user may
+  # legitimately want to load them.
+  bad_px <- unique(rings$Sample[!is.na(rings$pixelsize) &
+                                  (rings$pixelsize < 0.1 | rings$pixelsize > 1000)])
+  if (length(bad_px) > 0) {
+    message(sprintf(
+      "\nWARNING: %d core(s) report a resolution outside the plausible 0.1-1000 µm/pixel band used by RingIndicator: %s\nRing widths and fixed-width density windows from these cores are not trustworthy.",
+      length(bad_px), paste(bad_px, collapse = ", ")
+    ))
+  }
+
   
   # ──────────────────────────────────────────────────────────────────────────
   # 4) Clean ringwidth data and compute ringwidth in mm (RW)
   # ──────────────────────────────────────────────────────────────────────────
   
+  # Fracture bookkeeping, following the RingIndicator data model (column 6 of
+  # '*_ringwidth.txt'):
+  #
+  #   type 2, "border" fracture: a spurious sliver AT a real ring boundary. It
+  #     consumes no calendar year (year is NaN) and its width is 0. There is no
+  #     wood in it, so the entry is dropped outright and its span is never read.
+  #
+  #   type 1, "mid-ring" fracture: one real ring split into three entries. The
+  #     two solid halves are merged into the entry INSIDE the crack, so the
+  #     entries of that year hold (merged width, 0, 0) and all carry the same
+  #     year. Taking the maximum width within Sample/Year therefore gives every
+  #     surviving entry the ring's true width, and dropping the type-1 entry
+  #     removes the crack void while keeping both solid halves - which is what
+  #     the density of that ring must be computed from.
+  #
+  # A missing ring (column 5) is not an entry at all: it only shifts the year
+  # axis, which RingIndicator has already done. Nothing is needed here.
   rings <- rings |>
+    dplyr::mutate(BrokenRingType = ifelse(is.na(BrokenRingType), 0, round(BrokenRingType))) |>
     dplyr::filter(BrokenRingType != 2) |>
     dplyr::group_by(Sample, Year) |>
-    dplyr::mutate(width = max(width, na.rm = TRUE)) |>
+    dplyr::mutate(
+      width = if (all(is.na(width))) NA_real_ else max(width, na.rm = TRUE)
+    ) |>
     dplyr::ungroup() |>
     dplyr::filter(BrokenRingType != 1)
-  
+
   # Convert to mm: width * pixelsize gives microns, divide by 1000 = mm
   rings$RW <- rings$width * rings$pixelsize / 1000
   
@@ -390,10 +453,13 @@ XCT.read <- function(
       tidyr::pivot_wider(names_from = "Sample", values_from = "RW") |>
       dplyr::arrange(Year)
     
-    # Ensure continuous year index (dplR style)
+    # Ensure continuous year index (dplR style). Missing rings leave gaps in the
+    # year axis - RingIndicator anchors them to calendar years - and this is what
+    # fills them back in as NA.
     rings_rw <- rings_rw |>
-      tidyr::complete(Year = seq(min(rings_rw$Year), max(rings_rw$Year), 1))
-    
+      tidyr::complete(Year = seq(min(rings_rw$Year), max(rings_rw$Year), 1)) |>
+      dplyr::arrange(Year)
+
     extent <- as.vector(rings_rw$Year)
     rings_rw$Year <- NULL
     rings_rw <- as.data.frame(rings_rw)
@@ -401,24 +467,86 @@ XCT.read <- function(
     return(dplR::as.rwl(rings_rw))
   }
   
-  # Keep a backup for later "ringwidth_density" join (so RW exists for all rings)
+  # Every measured ring, kept aside so that ring width survives whatever happens
+  # to the density below: a ring can lose its density (excluded, or blanked in
+  # the profile) and still be a perfectly good ring width.
   ringsbackup <- rings
-  
-  # Optionally remove narrow rings from density calculations (RW is in mm)
-  if (removeNarrowRings) {
-    rings <- rings |>
-      dplyr::filter(RW >= minRingWidth)
+
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # 4a) Rings the operator excluded from densitometry ('*_EXCLUDE.txt')
+  # ──────────────────────────────────────────────────────────────────────────
+  #
+  # RingIndicator lets the operator take a ring out of densitometry when its
+  # wood cannot be trusted to give a density - resin, a knot, a stained patch.
+  # That is a statement about the DENSITY of that ring and about nothing else:
+  # the ring keeps its calendar year, its width is still measured and exported,
+  # and only its density is absent (NaN in the profile and in the annual file).
+  # This function mirrors exactly that, which is why an excluded ring is NOT
+  # dropped here but flagged, and only its density values are removed.
+  #
+  # WHY THIS IS READ HERE AT ALL. RingIndicator already blanks the excluded
+  # spans with NaN when it writes '*_density_corr.txt', so a profile exported
+  # after the exclusions were set is already blank there and this step is
+  # idempotent. But the exclusion list can be edited after the densitometry run
+  # (or the densitometry run can predate it), and then the exported profile
+  # still carries values for rings the operator has excluded. Reading
+  # '*_EXCLUDE.txt' here makes the R side agree with the operator's intent
+  # whichever order the two happened in.
+  #
+  # THE NUMBERS ARE RING-WIDTH NUMBERS. Ring number r in '*_EXCLUDE.txt' is
+  # width entry r, i.e. row r of '*_ringwidth.txt' - which is `row_number` here,
+  # assigned before any filtering for exactly this reason. Width r is the wood
+  # between boundary r and boundary r+1, so the span blanked is the same one
+  # this function reads for that ring.
+  rings$excluded <- FALSE
+
+  if (excludeRings && length(excl_files) > 0) {
+    names(excl_files) <- sub("_EXCLUDE\\.txt$", "", basename(excl_files))
+    excl_report <- list()
+
+    for (sample_name in intersect(unique(rings$Sample), names(excl_files))) {
+      excluded_rings <- read_excluded_file(unname(excl_files[[sample_name]]))
+      if (!length(excluded_rings)) next
+
+      idx <- rings$Sample == sample_name
+      hit <- idx & rings$row_number %in% excluded_rings
+      rings$excluded[hit] <- TRUE
+
+      # A hand-edited or stale file can name a ring that no longer exists - the
+      # numbering shifts whenever a ring is inserted or deleted. That is worth
+      # reporting, but never worth aborting a load over.
+      #
+      # `rings_blanked` can also fall short of `rings_listed` without anything
+      # being stale: a number naming a fracture entry blanks nothing, because
+      # there is no wood in a crack to begin with.
+      n_widths <- max(rings$n_widths[idx], na.rm = TRUE)
+      excl_report[[length(excl_report) + 1L]] <- data.frame(
+        Sample = sample_name,
+        rings_listed = length(excluded_rings),
+        rings_blanked = sum(hit),
+        rings_out_of_range = sum(excluded_rings > n_widths),
+        stringsAsFactors = FALSE
+      )
+    }
+
+    if (verbose && length(excl_report) > 0) {
+      excl_report <- dplyr::bind_rows(excl_report)
+      message("\nRings excluded from densitometry (read from *_EXCLUDE.txt):")
+      print(excl_report)
+      if (any(excl_report$rings_out_of_range > 0)) {
+        message("Note: some listed ring numbers are past the last ring of their core and were ignored.\nThis usually means the *_EXCLUDE.txt file is stale - re-save the core in RingIndicator.")
+      }
+    }
+  } else if (!excludeRings && length(excl_files) > 0 && verbose) {
+    message(sprintf(
+      "\nNote: excludeRings=FALSE, so the %d '*_EXCLUDE.txt' file(s) in this folder are ignored.",
+      length(excl_files)
+    ))
   }
-  
-  # If removal eliminated everything, explain why
-  if (nrow(rings) == 0) {
-    stop(sprintf(
-      "After applying removeNarrowRings=TRUE with minRingWidth=%s mm, no rings remain.\nLower minRingWidth or set removeNarrowRings=FALSE.",
-      minRingWidth
-    ), call. = FALSE)
-  }
-  
-  
+
+
+
   # ──────────────────────────────────────────────────────────────────────────
   # 5) Read z-position boundaries and process density directly by interval. Each density vector is read
   # once and ring intervals are addressed directly with vector slices.
@@ -461,8 +589,14 @@ XCT.read <- function(
     }
   }
 
-  # remove rows incomplete in any field after ring/zpos matching, not only rows missing start/end.
-  rings <- tidyr::drop_na(rings)
+  # Drop rings that cannot be turned into a density: no year, no width, no
+  # resolution, or no usable boundary pair. Named columns rather than every
+  # column, so that an unused field ('Felldate', 'MissingringsBefore') carrying
+  # NaN cannot silently delete a perfectly measurable ring.
+  rings <- tidyr::drop_na(
+    rings,
+    dplyr::any_of(c("Year", "width", "pixelsize", "RW", "start", "end"))
+  )
 
   if (nrow(rings) == 0) {
     stop(
@@ -472,9 +606,12 @@ XCT.read <- function(
   }
 
   # Clip an interval to the density vector. Positions are 1-based in the files.
+  # round() before as.integer(), because as.integer() truncates towards zero and
+  # the positions are written as '%f' - a boundary stored as 439.999999 must not
+  # become 439. RingIndicator rounds these positions the same way.
   clip_intervals <- function(ring_table, n_density) {
-    start_idx <- pmax.int(1L, as.integer(ring_table$start))
-    end_idx <- pmin.int(n_density, as.integer(ring_table$end))
+    start_idx <- pmax.int(1L, as.integer(round(ring_table$start)))
+    end_idx <- pmin.int(n_density, as.integer(round(ring_table$end)))
     keep <- !is.na(start_idx) & !is.na(end_idx) & start_idx <= end_idx
 
     ring_table <- ring_table[keep, , drop = FALSE]
@@ -494,18 +631,26 @@ XCT.read <- function(
 
       if (nrow(sample_rings) == 0) return(NULL)
 
+      n_per_ring <- sample_rings$end_idx - sample_rings$start_idx + 1L
       positions <- unlist(
         Map(seq.int, sample_rings$start_idx, sample_rings$end_idx),
         use.names = FALSE
       )
-      years <- rep(sample_rings$Year, sample_rings$end_idx - sample_rings$start_idx + 1L)
+      years <- rep(sample_rings$Year, n_per_ring)
+      excluded_px <- rep(sample_rings$excluded, n_per_ring)
 
       # Ordering: number pixels within Sample/Year in physical
       # density-profile order, then return rows ordered by Sample, Year, pixel.
       physical_order <- order(positions, seq_along(positions))
       positions <- positions[physical_order]
       years <- years[physical_order]
+      excluded_px <- excluded_px[physical_order]
       density_out <- density_values[positions]
+
+      # An excluded ring keeps its pixels - the profile stays continuous and the
+      # ring is visible as one that could not be measured - but has no density.
+      density_out[excluded_px] <- NA_real_
+
       pixel_in_ring <- ave(seq_along(positions), years, FUN = seq_along)
 
       output_order <- order(years, pixel_in_ring)
@@ -594,7 +739,9 @@ XCT.read <- function(
     }
 
     n_pixels_raw <- round(lengthMicron / pixelsize)
-    if (!is.finite(n_pixels_raw)) {
+    if (is.na(n_pixels_raw)) return(numeric())
+    if (is.infinite(n_pixels_raw)) {
+      # A window of infinite width covers the ring; a negative one covers nothing.
       if (n_pixels_raw > 0) return(values)
       return(numeric())
     }
@@ -624,6 +771,14 @@ XCT.read <- function(
     years <- sort(unique(sample_rings$Year))
     density_by_year <- vapply(years, function(year_value) {
       year_rows <- which(sample_rings$Year == year_value)
+      px <- sample_rings$pixelsize[year_rows[1L]]
+
+      # An excluded ring contributes no wood. A year normally has one interval,
+      # so excluding it leaves nothing and the density is NA. A year split by a
+      # mid-ring fracture has two solid halves; excluding one of them leaves the
+      # other, which is the same weighting RingIndicator's annual file uses.
+      year_rows <- year_rows[!sample_rings$excluded[year_rows]]
+      if (!length(year_rows)) return(NA_real_)
 
       # Most years have one interval. The multi-interval path preserves the
       # handling of broken-ring records sharing the same year.
@@ -636,7 +791,7 @@ XCT.read <- function(
         }), use.names = FALSE)
       }
 
-      values <- select_density_window(values, sample_rings$pixelsize[year_rows[1L]])
+      values <- select_density_window(values, px)
       calculate_density(values, fun = fun, x = x)
     }, numeric(1))
 
@@ -664,13 +819,17 @@ XCT.read <- function(
   # ──────────────────────────────────────────────────────────────────────────
   
   if (output == "density") {
+    # NOT drop_na() before pivoting: a sample whose every ring is excluded or
+    # blanked would lose its column entirely and disappear from the chronology
+    # without a word. Its column is kept and is all NA, which is what a reader
+    # of an rwl expects for a series with no measurements in a given year.
     dens <- Density_corr |>
       dplyr::select(Year, Sample, Density) |>
-      tidyr::drop_na() |>
+      dplyr::filter(!is.na(Year)) |>
       tidyr::pivot_wider(names_from = "Sample", values_from = "Density") |>
-      dplyr::arrange(Year) |>
-      tidyr::complete(Year = seq(min(Year), max(Year), 1))
-    
+      tidyr::complete(Year = seq(min(Year), max(Year), 1)) |>
+      dplyr::arrange(Year)
+
     extent <- as.vector(dens$Year)
     dens$Year <- NULL
     dens <- as.data.frame(dens)
@@ -679,15 +838,24 @@ XCT.read <- function(
   }
   
   if (output == "ringwidth_density") {
-    # For RW we use ringsbackup to keep all rings (even if you removed narrow ones for density)
+    # ONE ROW PER MEASURED RING, and the density joined onto it - not the other
+    # way round. A ring can lack a density (excluded from densitometry, blanked
+    # by a crack, or no usable profile span) and still have a perfectly good
+    # width, and dropping such a row would delete a measurement rather than
+    # report the absence. Restricted to the samples that have density files at
+    # all, so this output does not quietly grow columns of pure NA for cores
+    # that were never measured densitometrically.
     rings_rw <- ringsbackup |>
+      dplyr::filter(Sample %in% common_samples, !is.na(Year), !is.na(RW)) |>
       dplyr::group_by(Sample, Year) |>
       dplyr::summarise(RW = max(RW), .groups = "drop")
-    
-    out <- Density_corr |>
-      dplyr::left_join(rings_rw, by = c("Sample", "Year"))
-    
-    return(out)
+
+    out <- rings_rw |>
+      dplyr::left_join(Density_corr, by = c("Sample", "Year")) |>
+      dplyr::select(Sample, Year, Density, RW) |>
+      dplyr::arrange(Sample, Year)
+
+    return(as.data.frame(out))
   }
   
   # Should never reach here due to earlier output validation, but keep a guard:

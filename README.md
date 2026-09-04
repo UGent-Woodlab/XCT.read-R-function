@@ -1,5 +1,3 @@
-<!-- README.md is generated from README.qmd. Edit README.qmd, then run `quarto render README.qmd`. -->
-
 # XCT.read: reading tree-ring width and density data
 
 *A practical guide to the XCT.read R function*
@@ -29,6 +27,20 @@ L-722-1_ringwidth.txt
 L-722-1_density_corr.txt
 L-722-1_zpos_corr.txt
 ```
+
+### Which RingIndicator files are read
+
+| File | Required for | What it contributes |
+|:--|:--|:--|
+| `<sample>_ringwidth.txt` | everything | ring width, calendar year, resolution, missing rings, fracture type |
+| `<sample>_density_corr.txt` | density outputs | the corrected density profile |
+| `<sample>_zpos_corr.txt` | density outputs | the corrected ring boundaries that cut that profile into rings |
+| `<sample>_EXCLUDE.txt` | optional | rings the operator took out of densitometry |
+| `<sample>_MXD.rwl` | `output = "MXD"` | MXD extracted from areas of interest |
+
+Ring *r* is the wood between boundary *r* and boundary *r*+1, which is the same half-open convention RingIndicator uses for its own annual figures, so the two agree ring for ring.
+
+RingIndicator also writes a `<sample>_density_annual.txt` with its own per-ring mean, minimum and maximum plus `MXD_3D`. `XCT.read()` does not read it: it recomputes from the profile instead, which is what makes the flexible density windows below possible. Use `_density_annual.txt` when you want RingIndicator's own summary, and `XCT.read()` when you want to define the window yourself.
 
 The included `Datafolder` contains example txt files. 
 
@@ -220,23 +232,79 @@ Density_top20 <- XCT.read(
 
 This differs from `fun = "max"`: a maximum is determined by one value, whereas `mean_top_x` summarizes a group of high values.
 
-## Removing very narrow rings from density calculations
+> [!NOTE]
+> **Very narrow rings**
+>
+> A very narrow ring covers few pixels, so its density statistic rests on few values — and with a `fixed` window it can be narrower than the window itself, in which case the whole ring is used. `XCT.read()` reports these rings like any other rather than filtering them, because the threshold is a decision about the analysis, not about the data. Filter them afterwards if you want to:
+>
+> ``` r
+> Data |>
+>   mutate(Density = if_else(RW < 0.030, NA_real_, Density))
+> ```
+>
+> A ring the operator judged unmeasurable is a different matter, and belongs in `*_EXCLUDE.txt` where it travels with the sample.
 
-Very narrow rings may contain too few pixels for a meaningful density statistic. They can be excluded from the **density calculation** using `removeNarrowRings` and `minRingWidth`.
+## Rings excluded from densitometry (`*_EXCLUDE.txt`)
+
+In RingIndicator, an operator can take an individual ring out of densitometry when its wood cannot be trusted to give a density — resin, a knot, a stained patch, a damaged surface. Those ring numbers are written to a `*_EXCLUDE.txt` file next to the other exports:
+
+``` text
+L-722-1_EXCLUDE.txt
+```
+
+The file holds one ring number per line. A ring number is a **position in the ring list**, i.e. the row number in `<sample>_ringwidth.txt`. A core with nothing excluded has no file at all.
+
+`XCT.read()` honours these files by default (`excludeRings = TRUE`):
 
 ``` r
-Data_filtered <- XCT.read(
+Data <- XCT.read(
   path = data_path,
-  output = "ringwidth_density",
-  densityType = "fraction",
-  area = c(0.75, 1),
-  fun = "mean",
-  removeNarrowRings = TRUE,
-  minRingWidth = 0.030
+  output = "ringwidth_density"
 )
 ```
 
-`minRingWidth` is expressed in **mm**. In this example, density is not calculated for rings narrower than 0.030 mm.
+An exclusion is a statement about the **density** of that ring and about nothing else, so `XCT.read()` treats it exactly as RingIndicator does:
+
+- the ring keeps its calendar year;
+- its **ring width is still reported**;
+- its **density is `NA`** — both in the annual density parameter and in the density profile.
+
+The ring is therefore visible in the output as one that could not be measured, rather than silently missing. The example folder ships without exclusions; writing one by hand shows the effect:
+
+``` r
+writeLines(c("5", "6", "7"), file.path(data_path, "L-722-1_EXCLUDE.txt"))
+
+XCT.read(data_path, output = "ringwidth_density") |>
+  filter(Sample == "L-722-1", Year %in% 1803:1807)
+```
+
+| Sample | Year | Density | RW |
+|:--|--:|--:|--:|
+| L-722-1 | 1803 | 879.5698 | 3.9978 |
+| L-722-1 | 1804 | NA | 6.9451 |
+| L-722-1 | 1805 | NA | 6.9206 |
+| L-722-1 | 1806 | NA | 6.1122 |
+| L-722-1 | 1807 | 901.8049 | 5.2415 |
+
+Set `excludeRings = FALSE` to ignore the files and read every ring, which is useful when checking what an exclusion actually removed:
+
+``` r
+Compare <- dplyr::full_join(
+  XCT.read(data_path, output = "ringwidth_density", excludeRings = FALSE),
+  XCT.read(data_path, output = "ringwidth_density", excludeRings = TRUE),
+  by = c("Sample", "Year"),
+  suffix = c("_all", "_excluded")
+)
+```
+
+> [!NOTE]
+> **Why `XCT.read()` reads the file at all**
+>
+> RingIndicator already blanks the excluded spans with `NaN` when it writes `*_density_corr.txt`, so a profile exported *after* the exclusions were set is already blank there and this step changes nothing.
+>
+> The exclusion list can, however, be edited after the densitometry run — or the densitometry run can predate it. In that case the exported profile still contains values for rings the operator has since excluded. Reading `*_EXCLUDE.txt` here makes the R output agree with the operator's intent whichever order the two happened in.
+
+With `verbose = TRUE`, the number of rings read per sample is reported. Ring numbers that no longer exist in the matching `*_ringwidth.txt` — possible with a hand-edited or stale file — are ignored and counted in that summary.
 
 ## Resolution handling
 
@@ -323,8 +391,7 @@ This output uses the sample-specific `*_MXD.rwl` files. The combined `ALL_MXD.rw
 | `area` | Start/end of the density window | `c(0.75, 1)` or `c("end", 100)` |
 | `fun` | Statistic calculated inside the window | `"mean"` |
 | `x` | Highest fraction used by `mean_top_x` | `0.20` |
-| `removeNarrowRings` | Exclude narrow rings from density calculations | `FALSE` |
-| `minRingWidth` | Minimum ring width when filtering (mm) | `0.030` |
+| `excludeRings` | Honour `*_EXCLUDE.txt`: density of excluded rings returned as `NA` | `TRUE` |
 | `overruleResolution` | Force one resolution for all samples | `FALSE` |
 | `resolution` | Forced resolution (µm/pixel) | `1` |
 | `autoFixWeirdResolution` | Correct obvious factor-of-ten resolution outliers | `TRUE` |
@@ -345,15 +412,14 @@ Data <- XCT.read(
   densityType = "fraction",
   area = c(0.75, 1),
   fun = "mean",
-  removeNarrowRings = TRUE,
-  minRingWidth = 0.030,
   verbose = TRUE
 )
 
 # Inspect the result
 summary(Data)
 
-# Missing density values after filtering
+# Rings that have a width but no density: excluded from densitometry,
+# blanked by a crack, or with no usable profile span
 Data |>
   filter(is.na(Density))
 
@@ -395,13 +461,23 @@ For the standard density outputs, each sample should have matching corrected den
 
 Check the messages printed with `verbose = TRUE`. Differences between sample names across file groups or incomplete exports can prevent matching.
 
-### Density values are missing for narrow rings
+### Density is `NA` for some rings
 
-If `removeNarrowRings = TRUE`, this may be intentional. Compare the ring width with `minRingWidth`.
+This is normal and usually intentional. A ring is reported with a width but no density when:
+
+- it is listed in `<sample>_EXCLUDE.txt` (see above) — check with `excludeRings = FALSE`;
+- RingIndicator blanked its span in the exported profile, for example a crack or the air filter;
+- it has no usable span in `<sample>_density_corr.txt` / `<sample>_zpos_corr.txt`.
+
+### A whole ring is missing from the output
+
+A **border fracture** (break type 2 in `<sample>_ringwidth.txt`) is a spurious sliver at a real ring boundary. It carries no calendar year and no wood, and is dropped. A **mid-ring fracture** (break type 1) splits one ring into three entries; the crack itself is dropped and the two solid halves are reported as the single ring they are.
 
 ### Ring widths appear ten times too large or too small
 
 Inspect the resolution summary. Verify the `pixelsize` values in the RingIndicator export and the settings of `autoFixWeirdResolution`, `overruleResolution`, and `resolution`.
+
+`XCT.read()` also warns when a reported resolution falls outside the 0.1–1000 µm/pixel band that RingIndicator itself considers plausible. A value outside that band is almost always a unit mix-up (pixels per centimetre, or DPI, read as µm per pixel) and it rescales every ring width and every fixed-width density window.
 
 ## Citation and further information
 
